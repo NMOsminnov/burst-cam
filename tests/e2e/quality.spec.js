@@ -77,8 +77,8 @@ test('настройки: выбор «кадр потока» вместо ро
 test('объективы: ультраширик из списка камер, кнопка 0,5× и обратно 1×', async ({ page }) => {
   test.skip(!q(), 'нужна поддельная камера с несколькими объективами');
   await openApp(page);
-  // Подсказка на месте и не мешает нажать «0,5×» (была ошибка: перехватывала касание).
-  await expect(page.locator('#hint')).toBeVisible();
+  // Подсказки поверх интерфейса нет (автор: «перекрывает интерфейс»).
+  await expect(page.locator('#hint')).toHaveCount(0);
   await expect(page.locator('#zoom-bar .lens-switch')).toHaveText('0,5×');
   await page.locator('#zoom-bar .lens-switch').click();
   await expect.poll(() => page.evaluate(() => window.burstcam.camera.settings.deviceId)).toBe('fake-ultra');
@@ -128,4 +128,12 @@ test('качество JPEG: «максимальное» заметно кру�
   const max = await shoot('Максимальное');
   test.info().annotations.push({ type: 'размер 1080p', description: `компактное ${compact} Б, максимальное ${max} Б` });
   expect(max).toBeGreaterThan(compact * 1.5);
+});
+
+test('родной снимок недоступен — приложение говорит почему, а не молча снимает кадр потока', async ({ page }) => {
+  test.skip(!!q(), 'достаточно одного прогона');
+  await openApp(page, fake('still=4000x3000&stillFail=1'));
+  await expect(page.locator('#res-label')).toContainText('без родного фото', { timeout: 20_000 });
+  await page.locator('#settings').click();
+  await expect(page.locator('#settings-sheet')).toContainText('Родной снимок недоступен: getPhotoCapabilities: NotSupportedError');
 });

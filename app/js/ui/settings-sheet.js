@@ -51,8 +51,11 @@ export class SettingsSheet {
       `Кадр видеопотока · ${streamLine || '—'}`, 'Мгновенно, ровно в момент касания.'));
     const noNative = typeof ImageCapture === 'undefined'
       ? '<p class="note">Этот браузер не даёт сайтам родной снимок камеры (так у Safari на iPhone) — фото берётся из видеопотока; выберите ниже режим с наибольшим разрешением.</p>'
-      : (!stillModes.length && p.tapMode === 'native' ? '<p class="note">Определяю родные режимы камеры…</p>' : '');
-    parts.push(`<section><h3>Касание кнопки снимает</h3>${opts.join('')}${noNative}</section>`);
+      : (!stillModes.length && p.tapMode === 'native'
+        ? `<p class="note">${i.stillReason === 'проверяю…' ? 'Определяю родные режимы камеры…' : 'Родной снимок недоступен: ' + esc(i.stillReason || 'причина неизвестна') + '. Фото берётся из видеопотока.'}</p>`
+        : '');
+    const cap = stillModes.length ? '<p class="note">Это наибольшее, что камера отдаёт браузеру. Полное разрешение 50–200 Мп производители обычно оставляют только своему приложению «Камера» — сторонним (и браузеру) чаще всего дают 12 Мп.</p>' : '';
+    parts.push(`<section><h3>Касание кнопки снимает</h3>${opts.join('')}${noNative}${cap}</section>`);
 
     // Режим потока.
     const sel = i.streamMode;

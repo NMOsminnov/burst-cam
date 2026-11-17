@@ -1,6 +1,7 @@
 // Камера: поток, превью, источник кадров, затвор, объективы, режимы, зум, фонарик, фокус.
 import { openStream, measureFps, stepDown, probeModes } from '../platform/stream.js';
 import { describeLenses } from '../platform/lenses.js';
+import { stillStatus } from '../platform/still.js';
 import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
 import { MIN_STREAM_FPS } from './config.js';
@@ -49,6 +50,7 @@ export class Camera {
       fps: Math.round(this.fps),
       still: this.still ? { width: this.still.width, height: this.still.height, mode: this.still.mode, modes: this.still.modes } : null,
       tapMode: this.prefs.tapMode,
+      stillReason: this.still ? '' : (this.prefs.tapMode !== 'native' ? 'выбран кадр потока' : (this._stillPending ? 'проверяю…' : stillStatus.reason)),
       quality: this.prefs.quality,
       encoders: this.pool.mode === 'main' ? 'главный поток' : `${this.pool.workers.length} воркера`,
       budgetMB: Math.round(this.platform.budget() / 1048576),
@@ -136,8 +138,11 @@ export class Camera {
   async _setupStill(gen = this.generation) {
     this.still = null;
     if (this.prefs.tapMode !== 'native' || !this.track) return;
-    const still = await this.platform.setupStill(this.track, { mode: this.prefs.stillSize });
-    if (gen === this.generation) this.still = still;
+    this._stillPending = true;
+    try {
+      const still = await this.platform.setupStill(this.track, { mode: this.prefs.stillSize });
+      if (gen === this.generation) this.still = still;
+    } finally { this._stillPending = false; }
   }
 
   async _attachSource(gen) {

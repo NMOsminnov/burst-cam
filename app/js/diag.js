@@ -184,7 +184,7 @@ async function lenses() {
           try {
             const pc = await new ImageCapture(t).getPhotoCapabilities();
             item.photo = `${pc.imageWidth.max}×${pc.imageHeight.max} (${((pc.imageWidth.max * pc.imageHeight.max) / 1e6).toFixed(1)} Мп)`;
-          } catch (e) { item.photo = 'ошибка: ' + e.name; }
+          } catch (e) { item.photo = 'ошибка: ' + e.name + ' ' + e.message; }
         } else item.photo = 'нет API';
         s.getTracks().forEach((x) => x.stop());
       } catch (e) {

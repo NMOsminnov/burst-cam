@@ -5,7 +5,6 @@ import { HOLD_MS, MIN_FREE_BYTES } from '../core/config.js';
 import { thumbUrl, toast } from './util.js';
 
 const $ = (id) => document.getElementById(id);
-const HINT_KEY = 'burstcam.hint.burst.v1';
 
 export class CameraUI {
   constructor({ camera, library, openGallery, openSettings }) {
@@ -56,7 +55,6 @@ export class CameraUI {
     this._checkSpace();
     setInterval(() => this._checkSpace(), 15000);
 
-    try { if (!localStorage.getItem(HINT_KEY)) $('hint').hidden = false; } catch { $('hint').hidden = false; }
   }
 
   async start() {
@@ -85,7 +83,6 @@ export class CameraUI {
         this.root.classList.add('bursting');
         this.shutter.classList.add('burst');
         this._count(1);
-        this._hintDone();
         break;
       case 'shot-end':
         if (this.shotOpen && this.shotOpen.id === data.shotId) this.shotOpen = null;
@@ -125,7 +122,7 @@ export class CameraUI {
     // Главное — что получится по касанию: родной снимок или кадр потока.
     $('res-label').textContent = info.still
       ? `Фото ${mp(info.still.width, info.still.height)} Мп · серия ${mpx} Мп`
-      : `${mpx} Мп · ${info.fps || '—'} к/с`;
+      : `${mpx} Мп · ${info.fps || '—'} к/с${info.tapMode === 'native' && info.stillReason && info.stillReason !== 'проверяю…' ? ' · без родного фото' : ''}`;
     const backs = info.lenses.filter((l) => l.facing === 'environment');
     const lensBtn = $('lens');
     lensBtn.hidden = !(backs.length > 1 && info.facing !== 'user');
@@ -234,14 +231,6 @@ export class CameraUI {
       void b.offsetWidth;
       b.classList.add('pop');
     }
-  }
-
-  _hintDone() {
-    const h = $('hint');
-    if (h.hidden) return;
-    h.classList.add('fade');
-    setTimeout(() => { h.hidden = true; }, 500);
-    try { localStorage.setItem(HINT_KEY, '1'); } catch { /* нет хранилища */ }
   }
 
   async _checkSpace() {

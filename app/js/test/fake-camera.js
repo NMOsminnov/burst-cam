@@ -29,6 +29,7 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
   const start = /^\d+x\d+$/.test(spec || '') ? spec.split('x').map(Number) : null;
   const stillSize = /^\d+x\d+$/.test(params.get('still') || '') ? params.get('still').split('x').map(Number) : null;
   const stillRot = Number(params.get('stillRot') || 0);
+  const stillFail = params.has('stillFail'); // getPhotoCapabilities отказывает (так бывает на части телефонов)
   window.__fakeStats = { takePhoto: 0, rejected: 0 };
 
   const makeStream = (constraints) => {
@@ -99,6 +100,7 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
   window.ImageCapture = class {
     constructor(track) { this.track = track; this.busy = false; }
     async getPhotoCapabilities() {
+      if (stillFail) throw new DOMException('camera refused', 'NotSupportedError');
       const [W, H] = this.track.__lens === LENSES[0] ? stillSize : [Math.round(stillSize[0] / 2), Math.round(stillSize[1] / 2)];
       return { imageWidth: { min: 640, max: W, step: 1 }, imageHeight: { min: 480, max: H, step: 1 } };
     }

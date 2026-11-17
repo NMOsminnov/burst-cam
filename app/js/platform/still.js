@@ -30,15 +30,24 @@ export function stillModes(pc) {
  * @param {{mode?: 'max'|'half'}} [opts]
  * @returns {Promise<null | {modes, mode, width, height, gain, pending: number, take: () => Promise<Blob|null>, busy: boolean}>}
  */
+/** Почему родной снимок недоступен (для настроек и diag) — последняя причина. */
+export const stillStatus = { reason: '' };
+
 export async function setupStill(track, { mode = 'max' } = {}) {
-  if (typeof ImageCapture === 'undefined') return null;
+  const fail = (reason) => { stillStatus.reason = reason; return null; };
+  if (typeof ImageCapture === 'undefined') return fail('браузер не даёт сайтам родной снимок (нет ImageCapture)');
   let ic;
-  try { ic = new ImageCapture(track); } catch { return null; }
-  if (typeof ic.takePhoto !== 'function') return null;
+  try { ic = new ImageCapture(track); } catch (e) { return fail('ImageCapture не создаётся: ' + e.name); }
+  if (typeof ic.takePhoto !== 'function') return fail('нет takePhoto()');
   let pc = null;
-  try { pc = await withTimeout(ic.getPhotoCapabilities(), 3000); } catch { /* бывает не реализовано */ }
+  let err = '';
+  // Камера на части телефонов отвечает на getPhotoCapabilities дольше 3 с — две попытки по 6 с.
+  for (let i = 0; i < 2 && !pc; i++) {
+    try { pc = await withTimeout(ic.getPhotoCapabilities(), 6000); } catch (e) { err = e.message === 'timeout' ? 'камера не ответила за 6 с' : e.name + ': ' + e.message; }
+  }
   const modes = stillModes(pc);
-  if (!modes.length) return null;
+  if (!modes.length) return fail(pc ? 'камера не сообщила размеры фото' : 'getPhotoCapabilities: ' + err);
+  stillStatus.reason = '';
   const chosen = modes.find((m) => m.id === mode) || modes[0];
   const s = track.getSettings();
   const streamPx = (s.width || 1) * (s.height || 1);
