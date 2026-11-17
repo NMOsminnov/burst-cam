@@ -18,7 +18,7 @@ PWA-камера для iPhone и Android: **касание — фото, уде
 | Что | Как |
 |---|---|
 | Запустить сервер | `start.cmd` (или `scripts\start.ps1 -Port 8443 -HttpPort 8080`) |
-| Открыть порты в брандмауэре (один раз, админ) | `firewall.cmd`; убрать — `scripts\firewall.ps1 -Remove` |
+| Открыть порты в брандмауэре (один раз, админ; обычно не нужно, если Windows уже разрешила node.exe) | `firewall.cmd`; убрать — `scripts\firewall.ps1 -Remove` |
 | Все проверки | `test.cmd`; только юнит — `scripts\test.ps1 -Unit` |
 | Новый сертификат CA | `scripts\new-ca.ps1` |
 | Перерисовать иконки | `npm run icons` |

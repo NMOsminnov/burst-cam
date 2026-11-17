@@ -42,6 +42,13 @@ try {
   $rule = Get-NetFirewallRule -DisplayName 'BurstCam*' -ErrorAction Stop | Where-Object { $_.Enabled -eq 'True' }
 } catch { $rule = $null }
 if (-not $rule) {
+  # Разрешение для самого node.exe (Windows спрашивает его при первом запуске) — тоже годится.
+  try {
+    $rule = Get-NetFirewallApplicationFilter -ErrorAction Stop | Where-Object { $_.Program -like '*node.exe' } |
+      Get-NetFirewallRule | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' }
+  } catch { $rule = $null }
+}
+if (-not $rule) {
   Say ''
   Say 'Внимание: нет правила брандмауэра BurstCam. Если телефон не открывает страницу —' Yellow
   Say 'один раз запустите firewall.cmd (попросит права администратора) или нажмите «Разрешить»,' Yellow

@@ -1,9 +1,9 @@
-﻿# Разрешить телефону подключаться к BurstCam (входящие TCP 8080 и 8443) — нужны права администратора.
+﻿# Разрешить телефону подключаться к BurstCam (входящие TCP 8080–8099 и 8443–8462) — нужны права администратора.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\firewall.ps1           # добавить правило
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\firewall.ps1 -Remove   # убрать правило
 param(
   [switch]$Remove,
-  [int[]]$Ports = @(8080, 8443)
+  [string[]]$Ports = @('8080-8099', '8443-8462')  # сервер берёт следующий порт, если основной занят
 )
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $name = 'BurstCam (локальный сервер камеры)'

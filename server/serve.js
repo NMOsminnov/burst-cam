@@ -21,8 +21,8 @@ const arg = (name, def) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? args[i + 1] : def;
 };
-const HTTPS_PORT = Number(arg('port', process.env.BURSTCAM_PORT || 8443));
-const HTTP_PORT = Number(arg('http', process.env.BURSTCAM_HTTP_PORT || 8080));
+let HTTPS_PORT = Number(arg('port', process.env.BURSTCAM_PORT || 8443));
+let HTTP_PORT = Number(arg('http', process.env.BURSTCAM_HTTP_PORT || 8080));
 const QUIET = args.includes('--quiet');
 
 const MIME = {
@@ -226,20 +226,33 @@ setInterval(() => {
   }
 }, 4000).unref();
 
-function listen(server, port, name) {
+function listenOnce(server, port) {
   return new Promise((resolve, reject) => {
-    server.once('error', (e) => {
-      if (e.code === 'EADDRINUSE') {
-        reject(new Error(`Порт ${port} (${name}) занят. Уже запущен другой BurstCam? Закройте его окно или запустите с --${name === 'HTTPS' ? 'port' : 'http'} <другой порт>.`));
-      } else reject(e);
-    });
-    server.listen(port, '0.0.0.0', resolve);
+    const onErr = (e) => { server.off('listening', onOk); reject(e); };
+    const onOk = () => { server.off('error', onErr); resolve(port); };
+    server.once('error', onErr);
+    server.once('listening', onOk);
+    server.listen(port, '0.0.0.0');
   });
 }
 
+/** Занят порт (часто 8080 держит служба Windows) — берём следующий свободный. */
+async function listen(server, port, name) {
+  for (let p = port; p < port + 20; p++) {
+    try {
+      await listenOnce(server, p);
+      if (p !== port) log(`  Порт ${port} (${name}) занят другой программой — использую ${p}.`);
+      return p;
+    } catch (e) {
+      if (e.code !== 'EADDRINUSE' && e.code !== 'EACCES') throw e;
+    }
+  }
+  throw new Error(`Порты ${port}–${port + 19} (${name}) заняты. Запустите с --${name === 'HTTPS' ? 'port' : 'http'} <другой порт>.`);
+}
+
 try {
-  await listen(httpsServer, HTTPS_PORT, 'HTTPS');
-  await listen(httpServer, HTTP_PORT, 'HTTP');
+  HTTPS_PORT = await listen(httpsServer, HTTPS_PORT, 'HTTPS');
+  HTTP_PORT = await listen(httpServer, HTTP_PORT, 'HTTP');
 } catch (e) {
   console.error('\n  ОШИБКА: ' + e.message + '\n');
   process.exit(1);
