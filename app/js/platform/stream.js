@@ -132,26 +132,30 @@ export function measureFps(video, ms = 700) {
  * Превью на время опроса мигает; результат кэшируется на объектив.
  * @returns {Promise<{width: number, height: number, fps: number|null, mp: number}[]>}
  */
-export async function probeModes(track, caps, { cacheKey } = {}) {
+export async function probeModes(track, caps, { cacheKey, photo = null } = {}) {
   const ck = cacheKey ? 'modes:' + cacheKey : null;
   const hit = ck && cacheGet(ck);
   if (hit) return hit;
   const before = track.getSettings();
   const seen = new Map();
-  const note = () => {
+  // photo(track) — размер родного снимка при этом режиме: у части камер он зависит от режима потока.
+  const note = async () => {
     const s = track.getSettings();
     if (!s.width || !s.height) return;
     const L = Math.max(s.width, s.height), S = Math.min(s.width, s.height);
     const k = L + 'x' + S;
     const fps = s.frameRate ? Math.round(s.frameRate) : null;
     const prev = seen.get(k);
-    if (!prev || (fps || 0) > (prev.fps || 0)) seen.set(k, { width: L, height: S, fps, mp: +((L * S) / 1e6).toFixed(1) });
+    if (prev && (prev.fps || 0) >= (fps || 0)) return;
+    const m = { width: L, height: S, fps, mp: +((L * S) / 1e6).toFixed(1) };
+    if (photo) { try { m.photo = await photo(track); } catch { m.photo = null; } }
+    seen.set(k, m);
   };
-  note();
+  await note();
   for (const [L, S] of feasibleLadder(caps)) {
     for (const [w, h] of [[L, S], [S, L]]) {
       try { await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } }); } catch { continue; }
-      note();
+      await note();
     }
   }
   try { await track.applyConstraints({ width: { ideal: before.width }, height: { ideal: before.height }, frameRate: { ideal: 30 } }); } catch { /* как есть */ }

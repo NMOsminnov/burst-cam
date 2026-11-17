@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadOrCreateCA, issueServerCert, caDer, fingerprint } from './certs.js';
 import { listAddresses } from './net.js';
+import { createLogSink } from './logsink.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APP = path.join(ROOT, 'app');
@@ -24,6 +25,7 @@ const arg = (name, def) => {
 let HTTPS_PORT = Number(arg('port', process.env.BURSTCAM_PORT || 8443));
 let HTTP_PORT = Number(arg('http', process.env.BURSTCAM_HTTP_PORT || 8080));
 const QUIET = args.includes('--quiet');
+const LOG_DIR = path.resolve(ROOT, arg('logs', process.env.BURSTCAM_LOG_DIR || 'logs'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -170,8 +172,10 @@ function httpHandler(req, res) {
 const ca = loadOrCreateCA(ROOT);
 let current = issueServerCert(ca, listAddresses().map((a) => a.address));
 
+const logSink = createLogSink({ dir: LOG_DIR, echo: (s) => log(s) });
 const httpsServer = https.createServer({ cert: current.certPem + ca.certPem, key: current.keyPem }, (req, res) => {
   noteClient(req);
+  if (logSink(req, res)) return;
   serveApp(req, res);
 });
 const httpServer = http.createServer((req, res) => {
@@ -210,6 +214,7 @@ function banner() {
     }
   });
   log('\n  На этом ноутбуке: https://localhost:' + HTTPS_PORT + '/');
+  log('  Журнал с телефонов: ' + path.join(path.relative(ROOT, LOG_DIR) || '.', '<дата>.jsonl'));
   log('  Остановить: Ctrl+C');
   log('==================================================\n');
 }
@@ -258,4 +263,4 @@ try {
   process.exit(1);
 }
 banner();
-if (process.send) process.send({ ready: true, httpsPort: HTTPS_PORT, httpPort: HTTP_PORT });
+if (process.send) process.send({ ready: true, httpsPort: HTTPS_PORT, httpPort: HTTP_PORT, logDir: LOG_DIR });

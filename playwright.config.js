@@ -43,7 +43,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `node server/serve.js --port ${PORT} --http 18080 --quiet`,
+    command: `node server/serve.js --port ${PORT} --http 18080 --quiet --logs artifacts/e2e-logs`,
     url: 'http://127.0.0.1:18080/health',
     reuseExistingServer: false,
     timeout: 20_000,

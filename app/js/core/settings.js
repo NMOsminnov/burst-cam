@@ -11,7 +11,8 @@ export const QUALITY = {
 export const DEFAULTS = {
   facing: 'environment',
   deviceId: null, // выбранный объектив (null — какой даст браузер)
-  streamMode: {}, // ключ объектива → [длинная, короткая] или отсутствует (автоподбор)
+  streamMode: {}, // ключ объектива → [длинная, короткая], выбранный человеком
+  autoMode: {}, // ключ объектива → режим, найденный автоопросом (при нём родной снимок крупнее всего)
   tapMode: 'native', // 'native' — родной снимок камеры, если есть; 'stream' — мгновенный кадр потока
   stillSize: 'max', // 'max' | 'half'
   quality: 'high',
@@ -20,9 +21,9 @@ export const DEFAULTS = {
 export function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
-    return { ...DEFAULTS, ...s, streamMode: { ...(s.streamMode || {}) } };
+    return { ...DEFAULTS, ...s, streamMode: { ...(s.streamMode || {}) }, autoMode: { ...(s.autoMode || {}) } };
   } catch {
-    return { ...DEFAULTS, streamMode: {} };
+    return { ...DEFAULTS, streamMode: {}, autoMode: {} };
   }
 }
 

@@ -92,6 +92,14 @@ export class CameraUI {
         clearTimeout(this.counterTimer);
         this.counterTimer = setTimeout(() => { this.counter.hidden = true; }, data.count > 1 ? 900 : 0);
         break;
+      case 'probe-start':
+        this.shutter.disabled = true;
+        $('cam-status').textContent = 'Определяю режимы камеры…';
+        break;
+      case 'probe-end':
+        this.shutter.disabled = false;
+        $('cam-status').textContent = '';
+        break;
       case 'limit': toast(`Серия остановлена: максимум ${data.count} кадров`); break;
       case 'queued': this.queued.add(data.id); this._pending(); break;
       case 'still-end': if (!data.ok) toast('Родной снимок не получился — сохранён кадр потока', 2000); break;

@@ -29,7 +29,9 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
   const start = /^\d+x\d+$/.test(spec || '') ? spec.split('x').map(Number) : null;
   const stillSize = /^\d+x\d+$/.test(params.get('still') || '') ? params.get('still').split('x').map(Number) : null;
   const stillRot = Number(params.get('stillRot') || 0);
-  const stillFail = params.has('stillFail'); // getPhotoCapabilities отказывает (так бывает на части телефонов)
+  const stillFail = params.has('stillFail');
+  // stillDepends: при потоке 4K камера даёт фото 8 Мп, при 1080p — полный still (гипотеза по телефону автора).
+  const stillDepends = params.has('stillDepends'); // getPhotoCapabilities отказывает (так бывает на части телефонов)
   window.__fakeStats = { takePhoto: 0, rejected: 0 };
 
   const makeStream = (constraints) => {
@@ -101,7 +103,8 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
     constructor(track) { this.track = track; this.busy = false; }
     async getPhotoCapabilities() {
       if (stillFail) throw new DOMException('camera refused', 'NotSupportedError');
-      const [W, H] = this.track.__lens === LENSES[0] ? stillSize : [Math.round(stillSize[0] / 2), Math.round(stillSize[1] / 2)];
+      let [W, H] = this.track.__lens === LENSES[0] ? stillSize : [Math.round(stillSize[0] / 2), Math.round(stillSize[1] / 2)];
+      if (stillDepends && this.track.__canvas.width * this.track.__canvas.height > 1920 * 1080) [W, H] = [3264, 2448];
       return { imageWidth: { min: 640, max: W, step: 1 }, imageHeight: { min: 480, max: H, step: 1 } };
     }
     async takePhoto(ps) {

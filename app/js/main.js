@@ -9,10 +9,13 @@ import { Viewer } from './ui/viewer.js';
 import { nav, toast } from './ui/util.js';
 import { SettingsSheet } from './ui/settings-sheet.js';
 import { loadSettings } from './core/settings.js';
+import { initTelemetry, track, log, highEntropy } from './core/telemetry.js';
 
 const params = new URLSearchParams(location.search);
 
 async function boot() {
+  initTelemetry({ pageName: 'app' });
+  highEntropy().then((v) => v && track('device-model', v));
   if (params.has('fake')) {
     // Поддельная камера для проверки без телефона (тесты, компьютер без камеры).
     const { installFakeCamera } = await import('./test/fake-camera.js');
@@ -27,8 +30,11 @@ async function boot() {
   let ui = null;
   const pool = new EncoderPool({
     count: platform.encoders(),
-    onSaved: (meta) => ui?.onSaved(meta),
-    onError: (m) => ui?.onEncodeError(m),
+    onSaved: (meta) => {
+      track('saved', { id: meta.id, idx: meta.idx, w: meta.width, h: meta.height, bytes: meta.bytes, source: meta.source, encodeMs: meta.encodeMs });
+      ui?.onSaved(meta);
+    },
+    onError: (m) => { log('error', 'encode', m); ui?.onEncodeError(m); },
   });
 
   const status = (msg) => { document.getElementById('cam-status').textContent = msg; };
@@ -40,6 +46,8 @@ async function boot() {
     settings: loadSettings(),
     onEvent: (evt, data) => {
       ui?.onCameraEvent(evt, data);
+      // В журнал — всё, кроме частых событий каждого кадра.
+      if (evt !== 'captured' && evt !== 'queued') track('camera:' + evt, evt === 'ready' ? { ...data, settings: camera.settings, caps: camera.caps } : data);
       if (evt === 'ready' && sheet && !sheet.el.hidden) sheet.render();
     },
     status,
@@ -102,6 +110,7 @@ function registerSW(isIdle) {
 }
 
 boot().catch((e) => {
+  log('error', 'boot', { message: e.message, stack: e.stack });
   console.error(e);
   document.getElementById('cam-error-text').textContent = 'Не удалось запустить приложение: ' + e.message;
   document.getElementById('cam-error').hidden = false;

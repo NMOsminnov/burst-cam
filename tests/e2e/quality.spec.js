@@ -95,11 +95,10 @@ test('объективы: ультраширик из списка камер, �
   await expect.poll(() => page.evaluate(() => window.burstcam.camera.settings.deviceId)).toBe('fake-back');
 });
 
-test('режимы камеры: опрос показывает реальные режимы, выбранный сохраняется', async ({ page }) => {
+test('режимы камеры определяются сами, без кнопки; выбранный сохраняется', async ({ page }) => {
   test.skip(!q(), 'режимы задаёт поддельная камера');
   await openApp(page);
   await page.locator('#settings').click();
-  await page.locator('[data-act="probe"]').click();
   const opts = page.locator('#settings-sheet .opt[data-group="mode"]');
   await expect(opts.first()).toBeVisible({ timeout: 15_000 });
   await expect(opts).toHaveText([/Автоматически/, /3840×2160/, /2560×1440/, /1920×1080/, /1280×720/]);
@@ -136,4 +135,23 @@ test('родной снимок недоступен — приложение г
   await expect(page.locator('#res-label')).toContainText('без родного фото', { timeout: 20_000 });
   await page.locator('#settings').click();
   await expect(page.locator('#settings-sheet')).toContainText('Родной снимок недоступен: getPhotoCapabilities: NotSupportedError');
+});
+
+test('автоопрос: выбирается режим, при котором родное фото крупнее (4K даёт 8 Мп, 1080p — 12 Мп)', async ({ page }) => {
+  test.skip(!!q(), 'достаточно одного прогона');
+  await openApp(page, fake('still=4000x3000&stillDepends=1'));
+  await expect(page.locator('#res-label')).toContainText('Фото 12 Мп', { timeout: 30_000 });
+  const s = await page.evaluate(() => ({ w: window.burstcam.camera.settings.width, modes: window.burstcam.camera.modes.map((m) => [m.width, m.photo && m.photo[0]]) }));
+  expect(s.w).toBe(1920);
+  expect(s.modes).toContainEqual([3840, 3264]);
+  expect(s.modes).toContainEqual([1920, 4000]);
+  // В листе настроек родное фото видно у каждого режима.
+  await page.locator('#settings').click();
+  await expect(page.locator('#settings-sheet .opt[data-value="3840x2160"]')).toContainText('родное фото 8 Мп');
+  await expect(page.locator('#settings-sheet .opt[data-value="1920x1080"]')).toContainText('родное фото 12 Мп');
+  // Снимок — 12 Мп.
+  await page.locator('#settings-sheet [data-act="close"]').click();
+  await shutter(page, 30);
+  await waitReady(page);
+  expect((await readPhoto(page)).w).toBe(4000);
 });

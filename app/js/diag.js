@@ -5,6 +5,9 @@ import { describeLenses } from './platform/lenses.js';
 import { setupStill } from './platform/still.js';
 import { canvasKit } from './core/encode.js';
 import { JPEG_QUALITY } from './core/config.js';
+import { initTelemetry, track, highEntropy } from './core/telemetry.js';
+
+initTelemetry({ pageName: 'diag' });
 
 const report = {};
 const $ = (id) => document.getElementById(id);
@@ -16,7 +19,13 @@ function row(table, k, v) {
   $(table).appendChild(tr);
 }
 
-function dump() { $('dump').textContent = JSON.stringify(report, null, 1); }
+// Отчёт уходит на ноутбук сам (через секунду после последнего изменения).
+let sendTimer = null;
+function dump() {
+  $('dump').textContent = JSON.stringify(report, null, 1);
+  clearTimeout(sendTimer);
+  sendTimer = setTimeout(() => track('diag-report', report), 1000);
+}
 
 async function workerCaps() {
   const src = `
@@ -57,6 +66,7 @@ async function caps() {
   // Версия приложения — чтобы видеть, не открыта ли на телефоне старая копия из кэша.
   try { report.version = ((await (await fetch('sw.js', { cache: 'no-store' })).text()).match(/VERSION = '([^']+)'/) || [])[1]; } catch { /* без сети */ }
   report.ua = navigator.userAgent;
+  report.model = await highEntropy();
   report.screen = `${screen.width}x${screen.height}@${devicePixelRatio}`;
   report.caps = c;
   dump();

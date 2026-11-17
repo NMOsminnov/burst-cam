@@ -1,7 +1,7 @@
 // Камера: поток, превью, источник кадров, затвор, объективы, режимы, зум, фонарик, фокус.
 import { openStream, measureFps, stepDown, probeModes } from '../platform/stream.js';
 import { describeLenses } from '../platform/lenses.js';
-import { stillStatus } from '../platform/still.js';
+import { stillStatus, photoMax } from '../platform/still.js';
 import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
 import { MIN_STREAM_FPS } from './config.js';
@@ -77,7 +77,7 @@ export class Camera {
     this.status('Включаю камеру…');
     let opened;
     try {
-      opened = await openStream({ facing, deviceId: this.deviceId, mode: this.prefs.streamMode[this.key] || null, status: this.status });
+      opened = await openStream({ facing, deviceId: this.deviceId, mode: this.prefs.streamMode[this.key] || this.prefs.autoMode[this.key] || null, status: this.status });
     } catch (e) {
       // Выбранный объектив пропал (другой телефон, сброс разрешений) — берём какой дадут.
       if (this.deviceId && (e.name === 'OverconstrainedError' || e.name === 'NotFoundError')) {
@@ -130,9 +130,50 @@ export class Camera {
     }
     if (gen !== this.generation) return;
     if (fps) { this.fps = Math.min(60, fps); this.source?.setStream({ fps: this.fps }); }
+    await this._autoProbe(gen);
+    if (gen !== this.generation) return;
     await this._setupStill(gen);
     if (gen !== this.generation) return;
     this.onEvent('ready', this.info());
+  }
+
+  /**
+   * Автоопрос режимов камеры (один раз на объектив, потом из кэша) и выбор режима, при котором
+   * родной снимок крупнее всего: на части Android-камер размер фото зависит от режима потока.
+   */
+  async _autoProbe(gen) {
+    if (!this.track) return;
+    this.probing = true;
+    this.onEvent('probe-start', {});
+    try {
+      const native = this.prefs.tapMode === 'native' && typeof ImageCapture !== 'undefined';
+      const modes = await probeModes(this.track, this.caps, {
+        cacheKey: this.key + ':' + (this.settings.deviceId || '') + (native ? ':photo' : ''),
+        photo: native ? (t) => photoMax(t) : null,
+      });
+      if (gen !== this.generation) return;
+      this.modes = modes;
+      this.onEvent('modes', { lens: this.currentLens()?.name, modes });
+      if (this.prefs.streamMode[this.key] || !native) return;
+      // Режим с наибольшим родным снимком (при равенстве — с большим потоком).
+      const px = (m) => (m.photo ? m.photo[0] * m.photo[1] : 0);
+      const best = modes.reduce((a, m) => (px(m) > px(a) || (px(m) === px(a) && m.width * m.height > a.width * a.height) ? m : a), modes[0]);
+      const s = this.settings;
+      const cur = modes.find((m) => m.width === Math.max(s.width, s.height) && m.height === Math.min(s.width, s.height));
+      if (best && px(best) > (cur ? px(cur) : 0) * 1.05) {
+        this.prefs.autoMode[this.key] = [best.width, best.height];
+        saveSettings(this.prefs);
+        this.onEvent('auto-mode', { from: cur && [cur.width, cur.height, cur.photo], to: [best.width, best.height, best.photo] });
+        const portrait = s.height > s.width;
+        await this.track.applyConstraints({ width: { ideal: portrait ? best.height : best.width }, height: { ideal: portrait ? best.width : best.height }, frameRate: { ideal: 30 } }).catch(() => {});
+        await waitDims(this.video);
+      }
+    } catch (e) {
+      this.onEvent('probe-error', { message: e.message });
+    } finally {
+      this.probing = false;
+      this.onEvent('probe-end', {});
+    }
   }
 
   async _setupStill(gen = this.generation) {
@@ -222,6 +263,7 @@ export class Camera {
   async selectLens(deviceId) {
     const lens = this.lenses.lenses.find((l) => l.deviceId === deviceId);
     if (!lens) return;
+    this.onEvent('setting', { lens: lens.name, label: lens.label });
     this.prefs.facing = lens.facing === 'user' ? 'user' : 'environment';
     if (lens.facing !== 'user') this.prefs.deviceId = deviceId;
     saveSettings(this.prefs);
@@ -230,21 +272,20 @@ export class Camera {
 
   /** Режимы потока текущего объектива (опрос с миганием превью, результат кэшируется). */
   async listModes() {
-    if (this.modes) return this.modes;
-    if (!this.track) return [];
-    this.modes = await probeModes(this.track, this.caps, { cacheKey: this.key + ':' + (this.settings.deviceId || '') });
-    return this.modes;
+    return this.modes || [];
   }
 
   /** mode: [длинная, короткая] или null (автоподбор). */
   async setStreamMode(mode) {
+    this.onEvent('setting', { streamMode: mode });
     if (mode) this.prefs.streamMode[this.key] = mode;
-    else delete this.prefs.streamMode[this.key];
+    else { delete this.prefs.streamMode[this.key]; delete this.prefs.autoMode[this.key]; }
     saveSettings(this.prefs);
     return this.start(this.facing);
   }
 
   async setTapMode(tapMode, stillSize = this.prefs.stillSize) {
+    this.onEvent('setting', { tapMode, stillSize });
     this.prefs.tapMode = tapMode;
     this.prefs.stillSize = stillSize;
     saveSettings(this.prefs);
@@ -254,6 +295,7 @@ export class Camera {
 
   setQuality(q) {
     this.prefs.quality = q;
+    this.onEvent('setting', { quality: q });
     saveSettings(this.prefs);
     this.source?.setStream({ quality: jpegQuality(this.prefs) });
     this.onEvent('ready', this.info());

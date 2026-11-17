@@ -60,12 +60,14 @@ export class SettingsSheet {
     // Режим потока.
     const sel = i.streamMode;
     let modesHtml;
-    if (!modes) {
-      modesHtml = `<button class="wide-btn" data-act="probe">Определить режимы камеры</button><p class="note">Сейчас: ${streamLine || '—'} · ${i.fps} к/с. Превью на пару секунд мигнёт.</p>`;
+    if (!modes || !modes.length) {
+      modesHtml = `<p class="note">Определяю режимы камеры… Сейчас: ${streamLine || '—'} · ${i.fps} к/с.</p>`;
     } else {
-      modesHtml = radio('mode', 'auto', !sel, 'Автоматически', 'Наибольшее разрешение, при котором поток держит ~20 к/с.')
+      const mpS = (a) => ((a[0] * a[1]) / 1e6).toFixed(1).replace('.', ',').replace(/,0$/, '');
+      modesHtml = radio('mode', 'auto', !sel, 'Автоматически', 'Режим, при котором родное фото крупнее всего; без родного фото — наибольший поток с ~20 к/с.')
         + modes.map((m) => radio('mode', `${m.width}x${m.height}`, !!sel && sel[0] === m.width && sel[1] === m.height,
-          `${m.width}×${m.height} · ${String(m.mp).replace('.', ',')} Мп`, m.fps ? `до ${m.fps} к/с` : '')).join('');
+          `${m.width}×${m.height} · ${String(m.mp).replace('.', ',')} Мп`,
+          [m.fps ? `до ${m.fps} к/с` : '', m.photo ? `родное фото ${mpS(m.photo)} Мп` : ''].filter(Boolean).join(' · '))).join('');
     }
     parts.push(`<section><h3>Режим камеры</h3><p class="note">Разрешение превью, серии удержанием${stillModes.length && p.tapMode === 'native' ? '' : ' и фото по касанию'}.</p>${modesHtml}</section>`);
 
@@ -85,12 +87,7 @@ export class SettingsSheet {
     try {
       if (act === 'close') nav.back();
       else if (act === 'lens') { await this._busy(() => this.cam.selectLens(b.dataset.id)); }
-      else if (act === 'probe') {
-        b.disabled = true;
-        b.textContent = 'Опрашиваю камеру…';
-        const modes = await this.cam.listModes();
-        this.render(modes);
-      } else if (act === 'pick') {
+ else if (act === 'pick') {
         const [group, value] = [b.dataset.group, b.dataset.value];
         if (group === 'tap') {
           if (value === 'stream') await this.cam.setTapMode('stream');

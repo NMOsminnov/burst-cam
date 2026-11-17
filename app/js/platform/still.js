@@ -30,6 +30,14 @@ export function stillModes(pc) {
  * @param {{mode?: 'max'|'half'}} [opts]
  * @returns {Promise<null | {modes, mode, width, height, gain, pending: number, take: () => Promise<Blob|null>, busy: boolean}>}
  */
+/** Наибольший родной снимок при текущем режиме дорожки: [длинная, короткая] или null. */
+export async function photoMax(track, ms = 4000) {
+  if (typeof ImageCapture === 'undefined') return null;
+  const pc = await withTimeout(new ImageCapture(track).getPhotoCapabilities(), ms);
+  const w = pc?.imageWidth?.max, h = pc?.imageHeight?.max;
+  return w && h ? [Math.max(w, h), Math.min(w, h)] : null;
+}
+
 /** Почему родной снимок недоступен (для настроек и diag) — последняя причина. */
 export const stillStatus = { reason: '' };
 
