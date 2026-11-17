@@ -5,7 +5,7 @@ import { stillStatus, photoMax } from '../platform/still.js';
 import { pickDefaultMode, sameMode } from './modes.js';
 import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
-import { MIN_STREAM_FPS } from './config.js';
+import { MIN_STREAM_FPS, STILL_GAIN } from './config.js';
 import { jpegQuality, lensKey, saveSettings } from './settings.js';
 
 export class Camera {
@@ -51,7 +51,11 @@ export class Camera {
       fps: Math.round(this.fps),
       still: this.still ? { width: this.still.width, height: this.still.height, mode: this.still.mode, modes: this.still.modes } : null,
       tapMode: this.prefs.tapMode,
-      stillReason: this.still ? '' : (this.prefs.tapMode !== 'native' ? 'выбран кадр потока' : (this._stillPending ? 'проверяю…' : stillStatus.reason)),
+      stillModes: this.stillCaps?.modes || null,
+      stillReason: this.still ? '' : this.prefs.tapMode === 'stream' ? 'выбран кадр потока'
+        : this._stillPending ? 'проверяю…'
+        : this.stillCaps ? 'авто: родное фото не крупнее кадра потока — снимаю мгновенно'
+        : stillStatus.reason,
       quality: this.prefs.quality,
       encoders: this.pool.mode === 'main' ? 'главный поток' : `${this.pool.workers.length} воркера`,
       budgetMB: Math.round(this.platform.budget() / 1048576),
@@ -150,7 +154,7 @@ export class Camera {
     this.probing = true;
     this.onEvent('probe-start', {});
     try {
-      const native = this.prefs.tapMode === 'native' && typeof ImageCapture !== 'undefined';
+      const native = this.prefs.tapMode !== 'stream' && typeof ImageCapture !== 'undefined';
       const modes = await probeModes(this.track, this.caps, {
         cacheKey: 'v2:' + this.key + ':' + (this.settings.deviceId || '') + (native ? ':photo' : ''),
         photo: native ? (t) => photoMax(t) : null,
@@ -183,11 +187,16 @@ export class Camera {
 
   async _setupStill(gen = this.generation) {
     this.still = null;
-    if (this.prefs.tapMode !== 'native' || !this.track) return;
+    this.stillCaps = null;
+    if (this.prefs.tapMode === 'stream' || !this.track) return;
     this._stillPending = true;
     try {
       const still = await this.platform.setupStill(this.track, { mode: this.prefs.stillSize });
-      if (gen === this.generation) this.still = still;
+      if (gen !== this.generation) return;
+      this.stillCaps = still;
+      // «Авто»: родной снимок — только если он заметно крупнее кадра потока. Иначе мгновенный
+      // кадр в момент касания: то же разрешение, но без задержки 0,4–0,9 с (а с ней — смаза).
+      this.still = still && (this.prefs.tapMode === 'native' || still.gain >= STILL_GAIN) ? still : null;
     } finally { this._stillPending = false; }
   }
 
@@ -234,6 +243,12 @@ export class Camera {
     const seriesId = newSeriesId();
     this.activeShot = { shotId, seriesId };
     this.source.arm(shotId, seriesId);
+    // Родной снимок запускаем сразу при нажатии, а не при отпускании: он и так снимается
+    // с задержкой 0,4–0,9 с, и каждая лишняя доля секунды — риск смаза.
+    if (this.still) {
+      this._stillShot = { shotId, promise: this.still.take() };
+      this.onEvent('still-start', { shotId });
+    }
     return true;
   }
 
@@ -245,13 +260,18 @@ export class Camera {
   async release(shotId, kind) {
     const src = this.source;
     if (!src) return;
-    if (kind === 'burst') { src.stop(shotId); return; }
-    const still = this.still;
-    if (!still) { src.single(shotId, false); return; }
+    const pending = this._stillShot && this._stillShot.shotId === shotId ? this._stillShot : null;
+    this._stillShot = null;
+    if (kind === 'burst') {
+      // Серия идёт из потока; начатый родной снимок не нужен.
+      src.stop(shotId);
+      if (pending) pending.promise.then(() => this.onEvent('still-end', { shotId, ok: false, dropped: true }));
+      return;
+    }
+    if (!pending) { src.single(shotId, false); return; }
     // Кадр потока уже взят в момент касания и ждёт родной снимок как образец ориентации.
     src.single(shotId, true);
-    this.onEvent('still-start', { shotId });
-    const blob = await still.take();
+    const blob = await pending.promise;
     this.onEvent('still-end', { shotId, ok: !!blob });
     if (this.source === src) src.still(shotId, blob);
   }

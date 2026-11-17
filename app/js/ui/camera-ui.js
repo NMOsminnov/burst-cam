@@ -76,7 +76,8 @@ export class CameraUI {
     switch (evt) {
       case 'ready': this._onReady(data); break;
       case 'captured':
-        if (data.idx === 0) this._flash();
+        // При родном снимке «щёлк» — когда он действительно снят (still-end), а не при касании.
+        if (data.idx === 0 && !this.stillShooting) this._flash();
         if (this.press.bursting || data.idx > 0) this._count(data.idx + 1);
         break;
       case 'burst-start':
@@ -102,7 +103,18 @@ export class CameraUI {
         break;
       case 'limit': toast(`Серия остановлена: максимум ${data.count} кадров`); break;
       case 'queued': this.queued.add(data.id); this._pending(); break;
-      case 'still-end': if (!data.ok) toast('Родной снимок не получился — сохранён кадр потока', 2000); break;
+      case 'still-start':
+        this.stillShooting = true;
+        this.shutter.classList.add('capturing');
+        break;
+      case 'still-end':
+        this.stillShooting = false;
+        this.shutter.classList.remove('capturing');
+        if (data.dropped) break;
+        this._flash();
+        this.cam.platform.haptic('tap');
+        if (!data.ok) toast('Родной снимок не получился — сохранён кадр потока', 2000);
+        break;
       case 'camera-ended':
         if (document.visibilityState === 'visible') this.start();
         break;
@@ -130,7 +142,7 @@ export class CameraUI {
     // Главное — что получится по касанию: родной снимок или кадр потока.
     $('res-label').textContent = info.still
       ? `Фото ${mp(info.still.width, info.still.height)} Мп · серия ${mpx} Мп`
-      : `${mpx} Мп · ${info.fps || '—'} к/с${info.tapMode === 'native' && info.stillReason && info.stillReason !== 'проверяю…' ? ' · без родного фото' : ''}`;
+      : `${mpx} Мп · ${info.fps || '—'} к/с${info.tapMode !== 'stream' && !info.stillModes && info.stillReason && info.stillReason !== 'проверяю…' ? ' · без родного фото' : ''}`;
     const backs = info.lenses.filter((l) => l.facing === 'environment');
     const lensBtn = $('lens');
     lensBtn.hidden = !(backs.length > 1 && info.facing !== 'user');

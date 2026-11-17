@@ -150,8 +150,10 @@ test('автоопрос: по умолчанию максимальная ча�
 test('автоопрос: без 60 к/с — наибольшее разрешение; родное фото при каждом режиме подписано', async ({ page }) => {
   test.skip(!!q(), 'достаточно одного прогона');
   await openApp(page, fake('still=4000x3000&stillDepends=1'));
-  await page.waitForFunction(() => window.burstcam.camera.modes && !window.burstcam.camera.probing && window.burstcam.camera.still, null, { timeout: 30_000 });
+  await page.waitForFunction(() => window.burstcam.camera.modes && !window.burstcam.camera.probing && window.burstcam.camera.stillCaps, null, { timeout: 30_000 });
   expect(await page.evaluate(() => window.burstcam.camera.settings.width)).toBe(3840);
+  // Родное фото (8 Мп) не крупнее потока 4K — «Авто» снимает мгновенный кадр, без задержки takePhoto.
+  expect(await page.evaluate(() => window.burstcam.camera.still)).toBe(null);
   await page.locator('#settings').click();
   await expect(page.locator('#settings-sheet .opt[data-value="3840x2160"]')).toContainText('родное фото 8 Мп');
   await expect(page.locator('#settings-sheet .opt[data-value="1920x1080"]')).toContainText('родное фото 12 Мп');

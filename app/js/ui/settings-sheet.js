@@ -39,19 +39,20 @@ export class SettingsSheet {
     const sw = i.width, sh = i.height;
     const streamLine = sw ? `${Math.max(sw, sh)}×${Math.min(sw, sh)} · ${mpStr(sw, sh)}` : '';
     const opts = [];
-    const stillModes = i.still?.modes || this._stillModesCache || [];
-    if (i.still?.modes) this._stillModesCache = i.still.modes;
+    const stillModes = i.stillModes || [];
+    const autoWhat = i.still ? `сейчас — родное фото ${mpStr(i.still.width, i.still.height)}` : (stillModes.length ? 'сейчас — мгновенный кадр (родное фото не крупнее)' : 'сейчас — мгновенный кадр');
+    opts.push(radio('tap', 'auto', p.tapMode === 'auto', 'Авто', `Родное фото, если оно заметно крупнее кадра потока; иначе кадр в момент касания — без задержки и смаза. ${autoWhat}.`));
     for (const m of stillModes) {
       const on = p.tapMode === 'native' && p.stillSize === m.id;
       opts.push(radio('tap', `native:${m.id}`, on,
-        `Родное фото камеры · ${mpStr(m.width, m.height)}`,
-        `${m.width}×${m.height}${m.id === 'half' ? ', с объединением пикселей — чище в темноте' : ', полное разрешение сенсора'}. 0,3–1,5 с на снимок.`));
+        `Всегда родное фото · ${mpStr(m.width, m.height)}`,
+        `${m.width}×${m.height}${m.id === 'half' ? ', с объединением пикселей — чище в темноте' : ''}. Снимается 0,4–1,5 с после касания — держите телефон неподвижно, пока кнопка жёлтая.`));
     }
-    opts.push(radio('tap', 'stream', p.tapMode === 'stream' || !stillModes.length,
-      `Кадр видеопотока · ${streamLine || '—'}`, 'Мгновенно, ровно в момент касания.'));
+    opts.push(radio('tap', 'stream', p.tapMode === 'stream',
+      `Всегда кадр видеопотока · ${streamLine || '—'}`, 'Мгновенно, ровно в момент касания.'));
     const noNative = typeof ImageCapture === 'undefined'
       ? '<p class="note">Этот браузер не даёт сайтам родной снимок камеры (так у Safari на iPhone) — фото берётся из видеопотока; выберите ниже режим с наибольшим разрешением.</p>'
-      : (!stillModes.length && p.tapMode === 'native'
+      : (!stillModes.length && p.tapMode !== 'stream'
         ? `<p class="note">${i.stillReason === 'проверяю…' ? 'Определяю родные режимы камеры…' : 'Родной снимок недоступен: ' + esc(i.stillReason || 'причина неизвестна') + '. Фото берётся из видеопотока.'}</p>`
         : '');
     const cap = stillModes.length ? '<p class="note">Это наибольшее, что камера отдаёт браузеру. Полное разрешение 50–200 Мп производители обычно оставляют только своему приложению «Камера» — сторонним (и браузеру) чаще всего дают 12 Мп.</p>' : '';
@@ -69,12 +70,12 @@ export class SettingsSheet {
           `${m.width}×${m.height} · ${String(m.mp).replace('.', ',')} Мп`,
           [m.fps ? `до ${m.fps} к/с` : '', m.photo ? `родное фото ${mpS(m.photo)} Мп` : ''].filter(Boolean).join(' · '))).join('');
     }
-    parts.push(`<section><h3>Режим камеры</h3><p class="note">Разрешение превью, серии удержанием${stillModes.length && p.tapMode === 'native' ? '' : ' и фото по касанию'}.</p>${modesHtml}</section>`);
+    parts.push(`<section><h3>Режим камеры</h3><p class="note">Разрешение превью, серии удержанием${i.still ? '' : ' и фото по касанию'}.</p>${modesHtml}</section>`);
 
     // Качество.
     parts.push(`<section><h3>Качество JPEG</h3>${Object.entries(QUALITY)
       .map(([k, v]) => radio('quality', k, p.quality === k, v.label, v.hint)).join('')}${
-      p.tapMode === 'native' && stillModes.length ? '<p class="note">Родной снимок сохраняется как есть, без пересжатия — эта настройка касается кадров потока.</p>' : ''}</section>`);
+      i.still ? '<p class="note">Родной снимок сохраняется как есть, без пересжатия — эта настройка касается кадров потока.</p>' : ''}</section>`);
 
     this.body.innerHTML = parts.join('');
   }
@@ -90,7 +91,7 @@ export class SettingsSheet {
  else if (act === 'pick') {
         const [group, value] = [b.dataset.group, b.dataset.value];
         if (group === 'tap') {
-          if (value === 'stream') await this.cam.setTapMode('stream');
+          if (value === 'stream' || value === 'auto') await this.cam.setTapMode(value);
           else await this.cam.setTapMode('native', value.split(':')[1]);
         } else if (group === 'mode') {
           await this._busy(() => this.cam.setStreamMode(value === 'auto' ? null : value.split('x').map(Number)));
