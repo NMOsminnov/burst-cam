@@ -27,6 +27,7 @@
   <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 12v8h14v-8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-stack" viewBox="0 0 24 24"><rect x="7" y="7" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 16V5a1 1 0 0 1 1-1h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="6.4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -41,8 +42,9 @@
 
     <header class="cam-top">
       <button id="torch" class="icon-btn" aria-label="Фонарик" aria-pressed="false" hidden><svg><use href="#i-torch"/></svg></button>
+      <button id="lens" class="lens-chip" aria-label="Сменить объектив" hidden></button>
       <div id="res-label" class="res-label" aria-live="polite"></div>
-      <span class="spacer"></span>
+      <button id="settings" class="icon-btn" aria-label="Настройки съёмки"><svg><use href="#i-gear"/></svg></button>
     </header>
 
     <div id="zoom-bar" class="zoom-bar" hidden></div>
@@ -100,6 +102,14 @@
       <button class="icon-btn danger" data-act="delete" aria-label="Удалить"><svg><use href="#i-trash"/></svg></button>
     </footer>
   </section>
+
+  <!-- Настройки съёмки -->
+  <div id="settings-sheet" class="modal settings" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Настройки съёмки">
+      <header><b>Настройки съёмки</b><button class="text-btn" data-act="close">Готово</button></header>
+      <div class="sheet-body" data-ref="body"></div>
+    </div>
+  </div>
 
   <!-- Подтверждение -->
   <div id="confirm" class="modal" hidden>

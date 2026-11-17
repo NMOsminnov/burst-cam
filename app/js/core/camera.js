@@ -1,17 +1,20 @@
-// Камера: поток, превью, источник кадров, затвор, зум, фонарик, фокус.
-import { openStream, measureFps, stepDown } from '../platform/stream.js';
+// Камера: поток, превью, источник кадров, затвор, объективы, режимы, зум, фонарик, фокус.
+import { openStream, measureFps, stepDown, probeModes } from '../platform/stream.js';
+import { describeLenses } from '../platform/lenses.js';
 import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
 import { MIN_STREAM_FPS } from './config.js';
+import { jpegQuality, lensKey, saveSettings } from './settings.js';
 
 export class Camera {
-  constructor({ video, platform, pool, onEvent = () => {}, status = () => {} }) {
+  constructor({ video, platform, pool, settings, onEvent = () => {}, status = () => {} }) {
     this.video = video;
     this.platform = platform;
     this.pool = pool;
+    this.prefs = settings;
     this.onEvent = onEvent;
     this.status = status;
-    this.facing = 'environment';
+    this.facing = settings.facing || 'environment';
     this.stream = null;
     this.track = null;
     this.source = null;
@@ -21,28 +24,45 @@ export class Camera {
     this.starting = null;
     this.activeShot = null;
     this.generation = 0;
+    this.lenses = { lenses: [], backs: [], ultraKnown: false };
+    this.modes = null; // режимы потока текущего объектива (после опроса)
   }
 
   get settings() { return this.track ? this.track.getSettings() : {}; }
 
+  get deviceId() { return this.facing === 'environment' ? this.prefs.deviceId : null; }
+
+  get key() { return lensKey(this.facing, this.deviceId); }
+
+  currentLens() {
+    const id = this.settings.deviceId;
+    return this.lenses.lenses.find((l) => l.deviceId === id) || null;
+  }
+
   info() {
     const s = this.settings;
+    const lens = this.currentLens();
     return {
       platform: this.platform.label,
       source: this.source?.kind || '—',
       width: s.width, height: s.height,
       fps: Math.round(this.fps),
-      still: this.still ? { width: this.still.width, height: this.still.height } : null,
+      still: this.still ? { width: this.still.width, height: this.still.height, mode: this.still.mode, modes: this.still.modes } : null,
+      tapMode: this.prefs.tapMode,
+      quality: this.prefs.quality,
       encoders: this.pool.mode === 'main' ? 'главный поток' : `${this.pool.workers.length} воркера`,
       budgetMB: Math.round(this.platform.budget() / 1048576),
       zoom: this.caps.zoom ? { min: this.caps.zoom.min, max: this.caps.zoom.max } : null,
       torch: !!this.caps.torch,
       facing: s.facingMode || this.facing,
+      lens: lens ? { name: lens.name, short: lens.short, kind: lens.kind } : null,
+      lenses: this.lenses.lenses.map((l) => ({ deviceId: l.deviceId, name: l.name, short: l.short, kind: l.kind, facing: l.facing })),
+      streamMode: this.prefs.streamMode[this.key] || null,
     };
   }
 
   start(facing = this.facing) {
-    if (this.starting) return this.starting;
+    if (this.starting) return this.starting.then(() => this._start(facing));
     this.starting = this._start(facing).finally(() => { this.starting = null; });
     return this.starting;
   }
@@ -51,8 +71,20 @@ export class Camera {
     const gen = ++this.generation;
     this._teardown();
     this.facing = facing;
+    this.modes = null;
     this.status('Включаю камеру…');
-    const { stream, track, caps, fromCache } = await openStream({ facing, status: this.status });
+    let opened;
+    try {
+      opened = await openStream({ facing, deviceId: this.deviceId, mode: this.prefs.streamMode[this.key] || null, status: this.status });
+    } catch (e) {
+      // Выбранный объектив пропал (другой телефон, сброс разрешений) — берём какой дадут.
+      if (this.deviceId && (e.name === 'OverconstrainedError' || e.name === 'NotFoundError')) {
+        this.prefs.deviceId = null;
+        saveSettings(this.prefs);
+        opened = await openStream({ facing, status: this.status });
+      } else throw e;
+    }
+    const { stream, track, caps, fromCache } = opened;
     if (gen !== this.generation) { stream.getTracks().forEach((t) => t.stop()); return; }
     this.stream = stream;
     this.track = track;
@@ -70,30 +102,47 @@ export class Camera {
     this.fps = this.settings.frameRate || 30;
 
     await this._attachSource(gen);
+    await this._refreshLenses();
     this.status('');
     this.onEvent('ready', this.info());
 
-    // Фоном: проверить реальную частоту и подготовить takePhoto.
+    // Фоном: реальная частота и родной снимок.
     this._tune(gen, fromCache).catch(() => {});
+  }
+
+  async _refreshLenses() {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      this.lenses = describeLenses(devs);
+    } catch { /* нет списка — работаем с одной камерой */ }
   }
 
   async _tune(gen, fromCache) {
     let fps = await measureFps(this.video);
-    for (let i = 0; fps != null && fps < MIN_STREAM_FPS * 0.8 && i < 2 && !fromCache; i++) {
+    const userMode = !!this.prefs.streamMode[this.key];
+    for (let i = 0; fps != null && fps < MIN_STREAM_FPS * 0.8 && i < 2 && !fromCache && !userMode; i++) {
       if (gen !== this.generation) return;
-      if (!(await stepDown(this.track, this.caps, this.facing))) break;
+      if (!(await stepDown(this.track, this.caps, this.facing, this.deviceId))) break;
       await waitDims(this.video);
       fps = await measureFps(this.video);
     }
     if (gen !== this.generation) return;
-    if (fps) { this.fps = Math.min(60, fps); this.source?.setStream(this.fps); }
-    this.still = await this.platform.setupStill(this.track);
+    if (fps) { this.fps = Math.min(60, fps); this.source?.setStream({ fps: this.fps }); }
+    await this._setupStill(gen);
     if (gen !== this.generation) return;
     this.onEvent('ready', this.info());
   }
 
+  async _setupStill(gen = this.generation) {
+    this.still = null;
+    if (this.prefs.tapMode !== 'native' || !this.track) return;
+    const still = await this.platform.setupStill(this.track, { mode: this.prefs.stillSize });
+    if (gen === this.generation) this.still = still;
+  }
+
   async _attachSource(gen) {
     const budget = this.platform.budget();
+    const quality = jpegQuality(this.prefs);
     for (const plan of this.platform.sourcePlan()) {
       if (gen !== this.generation) return;
       const ports = this.pool.freshPorts();
@@ -101,14 +150,14 @@ export class Camera {
         let src;
         if (plan === 'worker:readable') {
           if (typeof window.MediaStreamTrackProcessor !== 'function') continue;
-          src = await WorkerSource.create({ track: this.track, how: 'readable', ports, budget, fps: this.fps });
+          src = await WorkerSource.create({ track: this.track, how: 'readable', ports, budget, fps: this.fps, quality });
         } else if (plan === 'worker:track') {
-          src = await WorkerSource.create({ track: this.track, how: 'track', ports, budget, fps: this.fps });
+          src = await WorkerSource.create({ track: this.track, how: 'track', ports, budget, fps: this.fps, quality });
         } else {
-          src = MainSource.create({ video: this.video, ports, budget, fps: this.fps });
+          src = MainSource.create({ video: this.video, ports, budget, fps: this.fps, quality });
         }
         if (src instanceof WorkerSource && !(await orientationMatches(src, this.video))) {
-          // Кадры процессора повёрнуты не так, как превью: надёжнее брать их из <video>.
+          // Кадры процессора повёрнуты не так, как превью (или не идут): надёжнее брать их из <video>.
           src.close();
           continue;
         }
@@ -130,10 +179,11 @@ export class Camera {
   // ---------- Затвор ----------
 
   arm(shotId) {
-    if (!this.source) return;
+    if (!this.source) return false;
     const seriesId = newSeriesId();
     this.activeShot = { shotId, seriesId };
     this.source.arm(shotId, seriesId);
+    return true;
   }
 
   burst(shotId) {
@@ -147,18 +197,64 @@ export class Camera {
     if (kind === 'burst') { src.stop(shotId); return; }
     const still = this.still;
     if (!still) { src.single(shotId, false); return; }
+    // Кадр потока уже взят в момент касания и ждёт родной снимок как образец ориентации.
     src.single(shotId, true);
     this.onEvent('still-start', { shotId });
     const blob = await still.take();
     this.onEvent('still-end', { shotId, ok: !!blob });
-    src.still(shotId, blob);
+    if (this.source === src) src.still(shotId, blob);
+  }
+
+  // ---------- Объективы и режимы ----------
+
+  async switchFacing() {
+    this.prefs.facing = this.facing === 'environment' ? 'user' : 'environment';
+    saveSettings(this.prefs);
+    return this.start(this.prefs.facing);
+  }
+
+  /** Выбрать объектив по deviceId (из this.lenses). */
+  async selectLens(deviceId) {
+    const lens = this.lenses.lenses.find((l) => l.deviceId === deviceId);
+    if (!lens) return;
+    this.prefs.facing = lens.facing === 'user' ? 'user' : 'environment';
+    if (lens.facing !== 'user') this.prefs.deviceId = deviceId;
+    saveSettings(this.prefs);
+    return this.start(this.prefs.facing);
+  }
+
+  /** Режимы потока текущего объектива (опрос с миганием превью, результат кэшируется). */
+  async listModes() {
+    if (this.modes) return this.modes;
+    if (!this.track) return [];
+    this.modes = await probeModes(this.track, this.caps, { cacheKey: this.key + ':' + (this.settings.deviceId || '') });
+    return this.modes;
+  }
+
+  /** mode: [длинная, короткая] или null (автоподбор). */
+  async setStreamMode(mode) {
+    if (mode) this.prefs.streamMode[this.key] = mode;
+    else delete this.prefs.streamMode[this.key];
+    saveSettings(this.prefs);
+    return this.start(this.facing);
+  }
+
+  async setTapMode(tapMode, stillSize = this.prefs.stillSize) {
+    this.prefs.tapMode = tapMode;
+    this.prefs.stillSize = stillSize;
+    saveSettings(this.prefs);
+    await this._setupStill();
+    this.onEvent('ready', this.info());
+  }
+
+  setQuality(q) {
+    this.prefs.quality = q;
+    saveSettings(this.prefs);
+    this.source?.setStream({ quality: jpegQuality(this.prefs) });
+    this.onEvent('ready', this.info());
   }
 
   // ---------- Управление ----------
-
-  async switchFacing() {
-    return this.start(this.facing === 'environment' ? 'user' : 'environment');
-  }
 
   async setZoom(z) {
     if (!this.caps.zoom || !this.track) return;

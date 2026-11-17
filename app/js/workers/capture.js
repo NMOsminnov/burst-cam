@@ -47,7 +47,7 @@ async function init(m) {
     budgetBytes: m.budget,
     emit: (evt, data) => self.postMessage({ type: 'evt', evt, data }),
   });
-  sched.setStream({ fps: m.fps });
+  sched.setStream({ fps: m.fps, quality: m.quality });
   ports.forEach((p, i) => {
     p.onmessage = (ev) => { if (ev.data.type === 'done') sched.done(i, ev.data.bytes); };
   });

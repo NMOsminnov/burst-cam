@@ -66,7 +66,7 @@ export async function encodeJob(job, kit) {
     const full = kit.get('full', w, h);
     const fc = ctx2d(full, { alpha: false });
     drawRotated(fc, src, sw, sh, rotation);
-    blob = await kit.toBlob(full, 'image/jpeg', JPEG_QUALITY);
+    blob = await kit.toBlob(full, 'image/jpeg', job.quality || JPEG_QUALITY);
   }
 
   // Миниатюра.

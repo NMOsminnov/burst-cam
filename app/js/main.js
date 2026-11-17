@@ -7,6 +7,8 @@ import { CameraUI } from './ui/camera-ui.js';
 import { GalleryView } from './ui/gallery.js';
 import { Viewer } from './ui/viewer.js';
 import { nav, toast } from './ui/util.js';
+import { SettingsSheet } from './ui/settings-sheet.js';
+import { loadSettings } from './core/settings.js';
 
 const params = new URLSearchParams(location.search);
 
@@ -30,13 +32,19 @@ async function boot() {
   });
 
   const status = (msg) => { document.getElementById('cam-status').textContent = msg; };
+  let sheet = null;
   const camera = new Camera({
     video: document.getElementById('preview'),
     platform,
     pool,
-    onEvent: (evt, data) => ui?.onCameraEvent(evt, data),
+    settings: loadSettings(),
+    onEvent: (evt, data) => {
+      ui?.onCameraEvent(evt, data);
+      if (evt === 'ready' && sheet && !sheet.el.hidden) sheet.render();
+    },
     status,
   });
+  sheet = new SettingsSheet({ el: document.getElementById('settings-sheet'), camera });
 
   // Галерея, серия, просмотр.
   const galleryEl = document.getElementById('gallery');
@@ -52,7 +60,7 @@ async function boot() {
   gallery = new GalleryView({ el: galleryEl, mode: 'root', library, openViewer, openSeries });
   series = new GalleryView({ el: seriesEl, mode: 'series', library, openViewer, openSeries });
 
-  ui = new CameraUI({ camera, library, openGallery: () => gallery.show() });
+  ui = new CameraUI({ camera, library, openGallery: () => gallery.show(), openSettings: () => sheet.show() });
   // Для диагностики (diag.html, консоль) и тестов.
   window.burstcam = { camera, pool, library, platform, info: () => camera.info() };
 

@@ -16,7 +16,7 @@ export class WorkerSource extends Emitter {
   /**
    * @param {'readable'|'track'} how  что передать воркеру
    */
-  static async create({ track, how, ports, budget, fps }) {
+  static async create({ track, how, ports, budget, fps, quality }) {
     const src = new WorkerSource();
     src.kind = how === 'readable' ? 'worker:readable' : 'worker:track';
     const worker = new Worker(new URL('../workers/capture.js', import.meta.url), { type: 'module' });
@@ -41,10 +41,10 @@ export class WorkerSource extends Emitter {
         // Chromium: процессор живёт в окне, поток кадров передаём воркеру (transferable stream).
         // eslint-disable-next-line no-undef
         const proc = new MediaStreamTrackProcessor({ track: src.clone, maxBufferSize: 2 });
-        worker.postMessage({ type: 'init', readable: proc.readable, ports, budget, fps }, [proc.readable, ...ports]);
+        worker.postMessage({ type: 'init', readable: proc.readable, ports, budget, fps, quality }, [proc.readable, ...ports]);
       } else {
         // Safari 18+: передаём саму дорожку, процессор создаётся в воркере.
-        worker.postMessage({ type: 'init', track: src.clone, ports, budget, fps }, [src.clone, ...ports]);
+        worker.postMessage({ type: 'init', track: src.clone, ports, budget, fps, quality }, [src.clone, ...ports]);
       }
       await started;
     } catch (e) {
@@ -60,7 +60,7 @@ export class WorkerSource extends Emitter {
   single(shotId, waitStill) { this.send({ type: 'single', shotId, waitStill }); }
   still(shotId, blob) { this.send({ type: 'still', shotId, blob }); }
   stop(shotId) { this.send({ type: 'stop', shotId }); }
-  setStream(fps) { this.send({ type: 'stream', fps }); }
+  setStream(opts) { this.send({ type: 'stream', ...opts }); }
   close() {
     try { this.worker?.postMessage({ type: 'close' }); } catch { /* уже закрыт */ }
     const w = this.worker;
@@ -71,7 +71,7 @@ export class WorkerSource extends Emitter {
 }
 
 export class MainSource extends Emitter {
-  static create({ video, ports, budget, fps }) {
+  static create({ video, ports, budget, fps, quality }) {
     const src = new MainSource();
     src.kind = 'main:' + ('requestVideoFrameCallback' in HTMLVideoElement.prototype ? 'rvfc' : 'raf');
     src.video = video;
@@ -80,7 +80,7 @@ export class MainSource extends Emitter {
       budgetBytes: budget,
       emit: (evt, data) => src.fire(evt, data),
     });
-    src.sched.setStream({ fps });
+    src.sched.setStream({ fps, quality });
     ports.forEach((p, i) => { p.onmessage = (e) => { if (e.data.type === 'done') src.sched.done(i, e.data.bytes); }; });
     src.running = true;
     src.grabbing = false;
@@ -112,6 +112,6 @@ export class MainSource extends Emitter {
   single(shotId, waitStill) { this.sched.single(shotId, { waitStill }); }
   still(shotId, blob) { this.sched.still(shotId, blob); }
   stop(shotId) { this.sched.stop(shotId); }
-  setStream(fps) { this.sched.setStream({ fps }); }
+  setStream(opts) { this.sched.setStream(opts); }
   close() { this.running = false; }
 }

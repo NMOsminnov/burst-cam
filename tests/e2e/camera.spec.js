@@ -1,34 +1,8 @@
 // Сквозная проверка: съёмка (касание и удержание), галерея, серия, просмотр, удаление.
 import { test, expect } from '@playwright/test';
+import { q, openApp, count, waitIdle, waitReady, shutter, clearDb } from './helpers.js';
 
-const q = () => test.info().project.metadata.query || '';
-
-async function openApp(page) {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto('/' + (q() ? q() + '&' : '?') + 'nosw');
-  await expect(page.locator('#shutter')).toBeEnabled({ timeout: 20_000 });
-  await page.waitForFunction(() => window.burstcam?.camera?.source);
-  return errors;
-}
-
-const count = (page) => page.evaluate(() => window.burstcam.library.photos.length);
-const waitIdle = (page) => page.waitForFunction(() => document.getElementById('pending').hidden, null, { timeout: 30_000 });
-
-async function shutter(page, holdMs) {
-  const box = await page.locator('#shutter').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(holdMs);
-  await page.mouse.up();
-}
-
-test.beforeEach(async ({ page }) => {
-  // Чистая база перед каждым тестом.
-  await page.goto('/' + q() + (q() ? '&' : '?') + 'nosw');
-  await page.evaluate(() => new Promise((r) => { const req = indexedDB.deleteDatabase('burstcam'); req.onsuccess = req.onerror = req.onblocked = () => r(); }));
-});
+test.beforeEach(async ({ page }) => { await clearDb(page); });
 
 test('касание — ровно одно фото, JPEG в разрешении потока', async ({ page }) => {
   const errors = await openApp(page);
@@ -112,9 +86,9 @@ test('удержание — серия, одна плитка в галерее
   expect(errors).toEqual([]);
 });
 
-test('несколько касаний подряд не теряют снимки и не сливаются в серию', async ({ page }) => {
+test('касания одно за другим: каждое — отдельное фото, без подтверждений', async ({ page }) => {
   await openApp(page);
-  for (let i = 0; i < 5; i++) { await shutter(page, 40); await page.waitForTimeout(120); }
+  for (let i = 0; i < 5; i++) { await shutter(page, 40); await waitReady(page); }
   await waitIdle(page);
   await expect.poll(() => count(page), { timeout: 15_000 }).toBe(5);
   const seriesCount = await page.evaluate(() => new Set(window.burstcam.library.photos.map((p) => p.seriesId)).size);
@@ -124,7 +98,7 @@ test('несколько касаний подряд не теряют сним�
 test('фото переживают перезагрузку; свайп в просмотре листает', async ({ page }) => {
   await openApp(page);
   await shutter(page, 40);
-  await page.waitForTimeout(200);
+  await waitReady(page);
   await shutter(page, 40);
   await waitIdle(page);
   await expect.poll(() => count(page)).toBe(2);
@@ -162,5 +136,10 @@ test('страница диагностики проходит замер без
   test.info().annotations.push({ type: 'замер', description: JSON.stringify(rep.camera) });
   expect(rep.camera.error).toBeUndefined();
   expect(rep.camera.jpegWorkerMs).toBeGreaterThan(0);
+  await page.locator('#lenses').click();
+  await expect(page.locator('#lenses')).toBeEnabled({ timeout: 45_000 });
+  const rep2 = JSON.parse(await page.locator('#dump').textContent());
+  expect(rep2.lenses.length).toBeGreaterThan(0);
+  expect(rep2.lenses.every((l) => !l.error && l.modes)).toBe(true);
   expect(errors).toEqual([]);
 });

@@ -45,8 +45,9 @@ export class Scheduler {
     this.dropped = 0;
   }
 
-  setStream({ fps }) {
+  setStream({ fps, quality } = {}) {
     if (fps) this.streamFps = fps;
+    if (quality) this.quality = quality;
   }
 
   arm({ shotId, seriesId }) {
@@ -198,6 +199,7 @@ export class Scheduler {
     enc.bytes += bytes;
     this.inflightBytes += bytes;
     msg.job.bytes = bytes;
+    if (this.quality) msg.job.quality = this.quality;
     enc.e.post(msg, transfer.filter(isTransferable));
     this.emit('queued', { id: msg.job.id, encoder: best, inflight: this.busy });
   }

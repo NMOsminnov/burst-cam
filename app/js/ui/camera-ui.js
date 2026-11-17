@@ -8,8 +8,10 @@ const $ = (id) => document.getElementById(id);
 const HINT_KEY = 'burstcam.hint.burst.v1';
 
 export class CameraUI {
-  constructor({ camera, library, openGallery }) {
+  constructor({ camera, library, openGallery, openSettings }) {
     this.cam = camera;
+    this.openSettings = openSettings;
+    this.shotOpen = null; // нажатие, чьё фото ещё не сохранено (id и время начала)
     this.lib = library;
     this.openGallery = openGallery;
     this.root = $('camera');
@@ -32,6 +34,12 @@ export class CameraUI {
     $('to-gallery').addEventListener('click', () => this.openGallery());
     $('flip').addEventListener('click', () => this._flip());
     $('torch').addEventListener('click', () => this._torch());
+    $('settings').addEventListener('click', () => this.openSettings());
+    $('lens').addEventListener('click', () => this._nextLens());
+    // Страховка: если сохранение «потерялось» (воркер упал), кнопка не должна висеть вечно.
+    setInterval(() => {
+      if (this.shotOpen && performance.now() - this.shotOpen.t > 12000 && !this.press.pressed) { this.shotOpen = null; this.queued.clear(); this._pending(); }
+    }, 2000);
     $('cam-retry').addEventListener('click', () => this.start());
     // Касание строки «8,3 Мп · 30 к/с» — сведения о выбранном пути, долгое — страница замеров.
     let resTimer = null;
@@ -80,6 +88,8 @@ export class CameraUI {
         this._hintDone();
         break;
       case 'shot-end':
+        if (this.shotOpen && this.shotOpen.id === data.shotId) this.shotOpen = null;
+        this._syncBusy();
         this.root.classList.remove('bursting');
         this.shutter.classList.remove('burst');
         clearTimeout(this.counterTimer);
@@ -87,8 +97,7 @@ export class CameraUI {
         break;
       case 'limit': toast(`Серия остановлена: максимум ${data.count} кадров`); break;
       case 'queued': this.queued.add(data.id); this._pending(); break;
-      case 'still-start': this.shutter.classList.add('down'); break;
-      case 'still-end': this.shutter.classList.remove('down'); break;
+      case 'still-end': if (!data.ok) toast('Родной снимок не получился — сохранён кадр потока', 2000); break;
       case 'camera-ended':
         if (document.visibilityState === 'visible') this.start();
         break;
@@ -111,10 +120,16 @@ export class CameraUI {
   }
 
   _onReady(info) {
-    const mpx = info.width && info.height ? ((info.width * info.height) / 1e6).toFixed(1).replace('.', ',') : '?';
-    let text = `${mpx} Мп · ${info.fps || '—'} к/с`;
-    if (info.still) text += ` · фото ${((info.still.width * info.still.height) / 1e6).toFixed(0)} Мп`;
-    $('res-label').textContent = text;
+    const mp = (w, h) => ((w * h) / 1e6).toFixed(1).replace('.', ',').replace(/,0$/, '');
+    const mpx = info.width && info.height ? mp(info.width, info.height) : '?';
+    // Главное — что получится по касанию: родной снимок или кадр потока.
+    $('res-label').textContent = info.still
+      ? `Фото ${mp(info.still.width, info.still.height)} Мп · серия ${mpx} Мп`
+      : `${mpx} Мп · ${info.fps || '—'} к/с`;
+    const backs = info.lenses.filter((l) => l.facing === 'environment');
+    const lensBtn = $('lens');
+    lensBtn.hidden = !(backs.length > 1 && info.facing !== 'user');
+    lensBtn.textContent = info.lens?.short || 'Объектив';
     $('res-label').title = `${info.platform} · ${info.source} · ${info.width}×${info.height} · кодировщики: ${info.encoders}`;
     $('preview').classList.toggle('mirror', info.facing === 'user');
     $('torch').hidden = !info.torch;
@@ -128,6 +143,7 @@ export class CameraUI {
     s.addEventListener('pointerdown', (e) => {
       if (s.disabled || e.button > 0) return;
       e.preventDefault();
+      if (this.busy) { this._nope(); return; }
       s.setPointerCapture?.(e.pointerId);
       s.classList.add('down');
       this.press.down();
@@ -143,7 +159,9 @@ export class CameraUI {
     addEventListener('keydown', (e) => {
       if ((e.code === 'Space' || e.code === 'Enter' || e.key === 'AudioVolumeUp' || e.key === 'AudioVolumeDown') && !e.repeat && this._cameraOnTop()) {
         e.preventDefault();
-        if (!s.disabled) { s.classList.add('down'); this.press.down(); }
+        if (s.disabled) return;
+        if (this.busy) { this._nope(); return; }
+        s.classList.add('down'); this.press.down();
       }
     });
     addEventListener('keyup', (e) => {
@@ -154,12 +172,23 @@ export class CameraUI {
   }
 
   _cameraOnTop() {
-    return document.getElementById('gallery').hidden && document.getElementById('viewer').hidden && document.getElementById('series')?.hidden !== false;
+    return ['gallery', 'viewer', 'series', 'settings-sheet'].every((id) => document.getElementById(id)?.hidden !== false);
+  }
+
+  /** Новое фото — только когда прошлое сохранено. */
+  get busy() { return !!this.shotOpen || this.queued.size > 0; }
+
+  _syncBusy() { this.shutter.classList.toggle('busy', this.busy && !this.press.pressed); }
+
+  _nope() {
+    this.shutter.classList.remove('nope');
+    void this.shutter.offsetWidth;
+    this.shutter.classList.add('nope');
   }
 
   _arm(id) {
     if (this.lowSpace) { toast('Мало места на телефоне — удалите лишние фото'); }
-    this.cam.arm(id);
+    if (this.cam.arm(id)) this.shotOpen = { id, t: performance.now() };
     this.cam.platform.haptic('tap');
   }
 
@@ -170,6 +199,7 @@ export class CameraUI {
 
   _release(id, kind) {
     this.cam.release(id, kind);
+    this._syncBusy();
   }
 
   _count(n) {
@@ -186,6 +216,7 @@ export class CameraUI {
   }
 
   _pending() {
+    this._syncBusy();
     const n = this.queued.size;
     this.pendingEl.hidden = n === 0;
     this.pendingEl.textContent = String(n);
@@ -240,13 +271,47 @@ export class CameraUI {
     try { if (await this.cam.setTorch(on)) b.setAttribute('aria-pressed', String(on)); } catch { toast('Фонарик недоступен'); }
   }
 
+  async _nextLens() {
+    const backs = this.cam.lenses.backs;
+    if (backs.length < 2 || this.busy) return;
+    const cur = this.cam.settings.deviceId;
+    const i = backs.findIndex((l) => l.deviceId === cur);
+    const next = backs[(i + 1) % backs.length];
+    await this._switch(() => this.cam.selectLens(next.deviceId));
+    toast(next.name, 1200);
+  }
+
+  async _switch(fn) {
+    this.shutter.disabled = true;
+    $('preview').style.opacity = '0.2';
+    try { await fn(); this.shutter.disabled = false; } catch (e) { this._error(e); }
+    finally { $('preview').style.opacity = ''; }
+  }
+
   _zoomBar(zoom) {
     const bar = $('zoom-bar');
-    if (!zoom || !(zoom.max > zoom.min)) { bar.hidden = true; return; }
+    // Отдельный ультраширокий объектив (iOS подписывает его) — кнопка «0,5×» переключает камеру.
+    const info = this.cam.info();
+    const ultra = this.cam.lenses.lenses.find((l) => l.kind === 'ultra');
+    const lensBtns = [];
+    if (ultra && info.facing !== 'user') {
+      const onUltra = info.lens?.kind === 'ultra';
+      const main = this.cam.lenses.backs.find((l) => l.kind === 'wide' || l.kind === 'multi');
+      const b = document.createElement('button');
+      b.textContent = onUltra ? '1×' : '0,5×';
+      b.className = 'lens-switch';
+      b.onclick = () => this._switch(() => this.cam.selectLens(onUltra ? (main || this.cam.lenses.backs.find((l) => l.kind !== 'ultra'))?.deviceId : ultra.deviceId));
+      lensBtns.push(b);
+    }
+    if (!zoom || !(zoom.max > zoom.min)) {
+      bar.replaceChildren(...lensBtns);
+      bar.hidden = !lensBtns.length;
+      return;
+    }
     const presets = [zoom.min < 1 ? zoom.min : null, 1, 2, 5].filter((z) => z != null && z >= zoom.min && z <= zoom.max);
     const uniq = [...new Set(presets.map((z) => Math.round(z * 10) / 10))];
-    if (uniq.length < 2) { bar.hidden = true; return; }
-    bar.replaceChildren(...uniq.map((z) => {
+    if (uniq.length < 2 && !lensBtns.length) { bar.hidden = true; return; }
+    bar.replaceChildren(...lensBtns, ...uniq.map((z) => {
       const b = document.createElement('button');
       b.dataset.z = z;
       b.textContent = `${String(z).replace('.', ',')}×`;
@@ -265,10 +330,11 @@ export class CameraUI {
   _markZoom(z) {
     const bar = $('zoom-bar');
     let best = null;
-    for (const b of bar.children) {
+    const zs = [...bar.children].filter((b) => b.dataset.z);
+    for (const b of zs) {
       if (best == null || Math.abs(Number(b.dataset.z) - z) < Math.abs(Number(best.dataset.z) - z)) best = b;
     }
-    for (const b of bar.children) {
+    for (const b of zs) {
       const on = b === best;
       b.classList.toggle('on', on);
       b.textContent = on && Math.abs(Number(b.dataset.z) - z) > 0.05 ? `${z.toFixed(1).replace('.', ',')}×` : `${String(b.dataset.z).replace('.', ',')}×`;

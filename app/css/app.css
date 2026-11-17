@@ -62,7 +62,11 @@ svg { width: 24px; height: 24px; display: block; }
   display: flex; align-items: center; gap: 12px;
   background: linear-gradient(to bottom, rgba(0,0,0,0.45), transparent);
 }
-.cam-top .spacer { width: 44px; }
+.lens-chip {
+  min-width: 44px; height: 32px; padding: 0 10px; border-radius: 16px; font-size: 13px; font-weight: 600;
+  background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.lens-chip:not([hidden]) + .res-label { margin-right: 0; }
 .res-label { flex: 1; text-align: center; font-size: 13px; color: var(--mut); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 
 .icon-btn { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 22px; }
@@ -87,6 +91,16 @@ svg { width: 24px; height: 24px; display: block; }
 .shutter.down .shutter-core { transform: scale(0.86); }
 .shutter.burst .shutter-core { transform: scale(0.74); background: var(--acc); }
 .shutter:disabled { opacity: 0.4; }
+/* Предыдущее фото ещё обрабатывается — кнопка ждёт (по просьбе автора: новое фото только после сохранения старого). */
+.shutter.busy { border-color: rgba(255,255,255,0.35); position: relative; }
+.shutter.busy .shutter-core { background: rgba(255,255,255,0.55); transform: scale(0.8); }
+.shutter.busy::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  border: 4px solid transparent; border-top-color: var(--acc); animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.shutter.nope { animation: nope 0.25s; }
+@keyframes nope { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 
 .thumb-btn {
   position: relative; width: 52px; height: 52px; border-radius: 12px;
@@ -107,8 +121,10 @@ svg { width: 24px; height: 24px; display: block; }
   min-width: 56px; padding: 4px 14px; border-radius: 16px; text-align: center;
   background: var(--acc); color: #111; font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums;
 }
+/* Подсказка выше панели зума и не ловит касания (раньше закрывала кнопку «0,5×»). */
 .hint {
-  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 132px); transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 176px); transform: translateX(-50%);
+  pointer-events: none;
   white-space: nowrap; font-size: 13px; color: var(--fg); padding: 6px 12px; border-radius: 14px;
   background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   transition: opacity 0.4s;
@@ -246,6 +262,31 @@ svg { width: 24px; height: 24px; display: block; }
   background: var(--glass-strong); font-size: 14px; font-weight: 600; white-space: nowrap;
 }
 .series-chip svg { width: 18px; height: 18px; }
+
+/* ---------- Настройки ---------- */
+.modal.settings { z-index: 15; }
+.sheet {
+  width: 100%; max-width: 520px; max-height: 86dvh; display: flex; flex-direction: column;
+  background: #1c1c1e; border-radius: 18px 18px 14px 14px; overflow: hidden; animation: slideUp 0.24s var(--ease);
+}
+.sheet header { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 18px; border-bottom: 0.5px solid var(--line); }
+.sheet header b { font-size: 17px; }
+.sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 14px 18px; overscroll-behavior: contain; }
+.sheet-body.wait { opacity: 0.5; pointer-events: none; }
+.sheet-body section { margin-top: 14px; }
+.sheet-body h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mut); }
+.sheet-body .note { margin: 6px 2px 0; font-size: 13px; color: var(--mut); line-height: 1.4; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { padding: 8px 14px; border-radius: 18px; background: #2c2c2e; font-size: 15px; }
+.chip.on { background: var(--acc); color: #111; font-weight: 600; }
+.opt { width: 100%; display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 10px 6px; border-bottom: 0.5px solid var(--line); }
+.opt .dot { flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 11px; border: 2px solid #636366; }
+.opt.on .dot { border: 7px solid var(--acc); }
+.opt .txt { display: flex; flex-direction: column; gap: 2px; }
+.opt b { font-weight: 500; font-size: 16px; }
+.opt small { color: var(--mut); font-size: 13px; line-height: 1.35; }
+.wide-btn { width: 100%; height: 46px; border-radius: 12px; background: #2c2c2e; font-weight: 600; }
+.wide-btn:disabled { opacity: 0.6; }
 
 /* ---------- Модальное подтверждение ---------- */
 .modal {

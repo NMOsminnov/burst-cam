@@ -1,6 +1,7 @@
 // Диагностика на телефоне: поддержка API в окне и в воркере, режим камеры, скорость сжатия.
 import { pickPlatform } from './platform/index.js';
-import { openStream } from './platform/stream.js';
+import { openStream, probeModes } from './platform/stream.js';
+import { describeLenses } from './platform/lenses.js';
 import { setupStill } from './platform/still.js';
 import { canvasKit } from './core/encode.js';
 import { JPEG_QUALITY } from './core/config.js';
@@ -156,6 +157,51 @@ async function bench() {
   $('run').disabled = false;
 }
 
+async function lenses() {
+  $('lenses').disabled = true;
+  $('lens-table').innerHTML = '';
+  const list = [];
+  report.lenses = list;
+  try {
+    // Ярлыки камер браузер отдаёт только после разрешения — сначала открываем любую.
+    const warm = await navigator.mediaDevices.getUserMedia({ video: true });
+    warm.getTracks().forEach((t) => t.stop());
+    const { lenses: ls } = describeLenses(await navigator.mediaDevices.enumerateDevices());
+    for (const l of ls) {
+      const item = { name: l.name, label: l.label, kind: l.kind };
+      list.push(item);
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: l.deviceId } } });
+        const t = s.getVideoTracks()[0];
+        const caps = t.getCapabilities ? t.getCapabilities() : {};
+        item.max = caps.width ? `${caps.width.max}×${caps.height.max}` : '—';
+        item.zoom = caps.zoom ? `${caps.zoom.min}–${caps.zoom.max}` : '—';
+        item.focus = (caps.focusMode || []).join(', ') || '—';
+        item.torch = !!caps.torch;
+        const modes = await probeModes(t, caps);
+        item.modes = modes.map((m) => `${m.width}×${m.height}${m.fps ? '@' + m.fps : ''}`).join(', ');
+        if (typeof ImageCapture !== 'undefined') {
+          try {
+            const pc = await new ImageCapture(t).getPhotoCapabilities();
+            item.photo = `${pc.imageWidth.max}×${pc.imageHeight.max} (${((pc.imageWidth.max * pc.imageHeight.max) / 1e6).toFixed(1)} Мп)`;
+          } catch (e) { item.photo = 'ошибка: ' + e.name; }
+        } else item.photo = 'нет API';
+        s.getTracks().forEach((x) => x.stop());
+      } catch (e) {
+        item.error = `${e.name}: ${e.message}`;
+      }
+      row('lens-table', `<b>${item.name}</b><br><small>${item.label}</small>`,
+        item.error || `наибольший поток ${item.max}<br>режимы: ${item.modes}<br>родное фото: ${item.photo}<br>зум ${item.zoom}, фокус: ${item.focus}${item.torch ? ', фонарик' : ''}`);
+      dump();
+    }
+  } catch (e) {
+    row('lens-table', 'ошибка', `${e.name}: ${e.message}`);
+  }
+  dump();
+  $('lenses').disabled = false;
+}
+
+$('lenses').onclick = lenses;
 $('run').onclick = bench;
 $('copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('dump').textContent); $('copy').textContent = 'Скопировано'; }
