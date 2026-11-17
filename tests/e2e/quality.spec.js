@@ -137,21 +137,34 @@ test('родной снимок недоступен — приложение г
   await expect(page.locator('#settings-sheet')).toContainText('Родной снимок недоступен: getPhotoCapabilities: NotSupportedError');
 });
 
-test('автоопрос: выбирается режим, при котором родное фото крупнее (4K даёт 8 Мп, 1080p — 12 Мп)', async ({ page }) => {
+test('автоопрос: по умолчанию максимальная частота (60 к/с), при ней — наибольшее разрешение', async ({ page }) => {
+  test.skip(!!q(), 'достаточно одного прогона');
+  await openApp(page, fake('still=4000x3000&fps60=1'));
+  await page.waitForFunction(() => window.burstcam.camera.modes && !window.burstcam.camera.probing, null, { timeout: 30_000 });
+  const s = await page.evaluate(() => window.burstcam.camera.settings);
+  expect([Math.max(s.width, s.height), s.frameRate]).toEqual([1920, 60]);
+  await page.locator('#settings').click();
+  await expect(page.locator('#settings-sheet .opt[data-value="1920x1080"]')).toContainText('до 60 к/с');
+});
+
+test('автоопрос: без 60 к/с — наибольшее разрешение; родное фото при каждом режиме подписано', async ({ page }) => {
   test.skip(!!q(), 'достаточно одного прогона');
   await openApp(page, fake('still=4000x3000&stillDepends=1'));
-  await expect(page.locator('#res-label')).toContainText('Фото 12 Мп', { timeout: 30_000 });
-  const s = await page.evaluate(() => ({ w: window.burstcam.camera.settings.width, modes: window.burstcam.camera.modes.map((m) => [m.width, m.photo && m.photo[0]]) }));
-  expect(s.w).toBe(1920);
-  expect(s.modes).toContainEqual([3840, 3264]);
-  expect(s.modes).toContainEqual([1920, 4000]);
-  // В листе настроек родное фото видно у каждого режима.
+  await page.waitForFunction(() => window.burstcam.camera.modes && !window.burstcam.camera.probing && window.burstcam.camera.still, null, { timeout: 30_000 });
+  expect(await page.evaluate(() => window.burstcam.camera.settings.width)).toBe(3840);
   await page.locator('#settings').click();
   await expect(page.locator('#settings-sheet .opt[data-value="3840x2160"]')).toContainText('родное фото 8 Мп');
   await expect(page.locator('#settings-sheet .opt[data-value="1920x1080"]')).toContainText('родное фото 12 Мп');
-  // Снимок — 12 Мп.
-  await page.locator('#settings-sheet [data-act="close"]').click();
-  await shutter(page, 30);
-  await waitReady(page);
-  expect((await readPhoto(page)).w).toBe(4000);
+});
+
+test('зум: кнопки 1×/2×/4× и приближение запоминается', async ({ page }) => {
+  test.skip(!q(), 'зум задаёт поддельная камера');
+  await openApp(page);
+  await expect(page.locator('#zoom-bar button[data-z]')).toHaveText(['1×', '2×', '4×']);
+  await page.locator('#zoom-bar button[data-z="2"]').click();
+  await expect.poll(() => page.evaluate(() => window.burstcam.camera.settings.zoom)).toBe(2);
+  await page.waitForTimeout(800);
+  await page.reload();
+  await page.waitForFunction(() => window.burstcam?.camera?.source);
+  await expect.poll(() => page.evaluate(() => window.burstcam.camera.settings.zoom)).toBe(2);
 });

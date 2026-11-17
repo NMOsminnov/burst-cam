@@ -2,6 +2,7 @@
 import { openStream, measureFps, stepDown, probeModes } from '../platform/stream.js';
 import { describeLenses } from '../platform/lenses.js';
 import { stillStatus, photoMax } from '../platform/still.js';
+import { pickDefaultMode, sameMode } from './modes.js';
 import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
 import { MIN_STREAM_FPS } from './config.js';
@@ -105,6 +106,9 @@ export class Camera {
 
     await this._attachSource(gen);
     await this._refreshLenses();
+    // Вернуть приближение, с которым снимали этим объективом в прошлый раз.
+    const z = this.prefs.zoom[this.key];
+    if (z && this.caps.zoom) await this.setZoom(z, { save: false });
     this.status('');
     this.onEvent('ready', this.info());
 
@@ -148,25 +152,26 @@ export class Camera {
     try {
       const native = this.prefs.tapMode === 'native' && typeof ImageCapture !== 'undefined';
       const modes = await probeModes(this.track, this.caps, {
-        cacheKey: this.key + ':' + (this.settings.deviceId || '') + (native ? ':photo' : ''),
+        cacheKey: 'v2:' + this.key + ':' + (this.settings.deviceId || '') + (native ? ':photo' : ''),
         photo: native ? (t) => photoMax(t) : null,
       });
       if (gen !== this.generation) return;
       this.modes = modes;
       this.onEvent('modes', { lens: this.currentLens()?.name, modes });
-      if (this.prefs.streamMode[this.key] || !native) return;
-      // Режим с наибольшим родным снимком (при равенстве — с большим потоком).
-      const px = (m) => (m.photo ? m.photo[0] * m.photo[1] : 0);
-      const best = modes.reduce((a, m) => (px(m) > px(a) || (px(m) === px(a) && m.width * m.height > a.width * a.height) ? m : a), modes[0]);
-      const s = this.settings;
-      const cur = modes.find((m) => m.width === Math.max(s.width, s.height) && m.height === Math.min(s.width, s.height));
-      if (best && px(best) > (cur ? px(cur) : 0) * 1.05) {
-        this.prefs.autoMode[this.key] = [best.width, best.height];
+      if (this.prefs.streamMode[this.key]) return; // режим выбран вручную
+      // По умолчанию: максимальная частота (в идеале 60 к/с), при ней — максимальное разрешение.
+      const best = pickDefaultMode(modes);
+      const st = this.settings;
+      const cur = { width: Math.max(st.width, st.height), height: Math.min(st.width, st.height), fps: st.frameRate };
+      if (best && !sameMode(best, cur)) {
+        this.prefs.autoMode[this.key] = [best.width, best.height, best.fps || undefined];
         saveSettings(this.prefs);
-        this.onEvent('auto-mode', { from: cur && [cur.width, cur.height, cur.photo], to: [best.width, best.height, best.photo] });
-        const portrait = s.height > s.width;
-        await this.track.applyConstraints({ width: { ideal: portrait ? best.height : best.width }, height: { ideal: portrait ? best.width : best.height }, frameRate: { ideal: 30 } }).catch(() => {});
+        this.onEvent('auto-mode', { from: cur, to: best });
+        const portrait = st.height > st.width;
+        await this.track.applyConstraints({ width: { ideal: portrait ? best.height : best.width }, height: { ideal: portrait ? best.width : best.height }, frameRate: { ideal: best.fps || 30 } }).catch(() => {});
         await waitDims(this.video);
+        const fps = await measureFps(this.video);
+        if (fps) { this.fps = Math.min(60, fps); this.source?.setStream({ fps: this.fps }); }
       }
     } catch (e) {
       this.onEvent('probe-error', { message: e.message });
@@ -303,10 +308,15 @@ export class Camera {
 
   // ---------- Управление ----------
 
-  async setZoom(z) {
+  async setZoom(z, { save = true } = {}) {
     if (!this.caps.zoom || !this.track) return;
     const { min, max } = this.caps.zoom;
     const v = Math.min(max, Math.max(min, z));
+    if (save) {
+      this.prefs.zoom[this.key] = v;
+      clearTimeout(this._zoomSave);
+      this._zoomSave = setTimeout(() => { saveSettings(this.prefs); this.onEvent('setting', { zoom: v }); }, 600);
+    }
     this._zoomWanted = v;
     if (this._zoomBusy) return;
     this._zoomBusy = true;

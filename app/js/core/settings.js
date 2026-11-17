@@ -13,6 +13,7 @@ export const DEFAULTS = {
   deviceId: null, // выбранный объектив (null — какой даст браузер)
   streamMode: {}, // ключ объектива → [длинная, короткая], выбранный человеком
   autoMode: {}, // ключ объектива → режим, найденный автоопросом (при нём родной снимок крупнее всего)
+  zoom: {}, // ключ объектива → приближение (на камерах с большим сенсором зум даёт больше деталей вдали)
   tapMode: 'native', // 'native' — родной снимок камеры, если есть; 'stream' — мгновенный кадр потока
   stillSize: 'max', // 'max' | 'half'
   quality: 'high',
@@ -21,9 +22,9 @@ export const DEFAULTS = {
 export function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
-    return { ...DEFAULTS, ...s, streamMode: { ...(s.streamMode || {}) }, autoMode: { ...(s.autoMode || {}) } };
+    return { ...DEFAULTS, ...s, streamMode: { ...(s.streamMode || {}) }, autoMode: { ...(s.autoMode || {}) }, zoom: { ...(s.zoom || {}) } };
   } catch {
-    return { ...DEFAULTS, streamMode: {}, autoMode: {} };
+    return { ...DEFAULTS, streamMode: {}, autoMode: {}, zoom: {} };
   }
 }
 

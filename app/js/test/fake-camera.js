@@ -31,7 +31,10 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
   const stillRot = Number(params.get('stillRot') || 0);
   const stillFail = params.has('stillFail');
   // stillDepends: при потоке 4K камера даёт фото 8 Мп, при 1080p — полный still (гипотеза по телефону автора).
-  const stillDepends = params.has('stillDepends'); // getPhotoCapabilities отказывает (так бывает на части телефонов)
+  const stillDepends = params.has('stillDepends');
+  // fps60: режимы 1080p и 720p основной камеры умеют 60 к/с.
+  const fps60 = params.has('fps60');
+  const maxFps = (lens, w, h) => (fps60 && lens === LENSES[0] && w * h <= 1920 * 1080 ? 60 : 30); // getPhotoCapabilities отказывает (так бывает на части телефонов)
   window.__fakeStats = { takePhoto: 0, rejected: 0 };
 
   const makeStream = (constraints) => {
@@ -40,6 +43,7 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
     const fm = ideal(v.facingMode) || 'environment';
     const lens = LENSES.find((l) => l.deviceId === id) || LENSES.find((l) => l.facing === fm) || LENSES[0];
     let [w, h] = start && lens === LENSES[0] ? start : closest(lens.modes, ideal(v.width), ideal(v.height));
+    let fr = Math.min(ideal(v.frameRate) || 30, maxFps(lens, w, h));
 
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -67,15 +71,20 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
     const track = stream.getVideoTracks()[0];
     const origStop = track.stop.bind(track);
     track.stop = () => { stopped = true; origStop(); };
-    const settings = () => ({ width: c.width, height: c.height, frameRate: 30, facingMode: lens.facing, deviceId: lens.deviceId, zoom: 1 });
+    let zoom = 1;
+    const settings = () => ({ width: c.width, height: c.height, frameRate: fr, facingMode: lens.facing, deviceId: lens.deviceId, zoom });
     const caps = () => ({
       width: { min: 1, max: lens.modes[0][0] }, height: { min: 1, max: lens.modes[0][1] },
-      frameRate: { min: 1, max: 30 }, facingMode: [lens.facing], deviceId: lens.deviceId,
+      frameRate: { min: 1, max: fps60 && lens === LENSES[0] ? 60 : 30 }, facingMode: [lens.facing], deviceId: lens.deviceId,
       zoom: lens.facing === 'environment' ? { min: 1, max: 4, step: 0.1 } : undefined,
     });
     const apply = async (k) => {
-      const [nw, nh] = closest(lens.modes, ideal(k?.width), ideal(k?.height));
-      if (ideal(k?.width)) { c.width = nw; c.height = nh; }
+      const z = k?.advanced?.find((a) => a.zoom != null)?.zoom;
+      if (z != null) zoom = z;
+      if (!ideal(k?.width)) return;
+      const [nw, nh] = closest(lens.modes, ideal(k.width), ideal(k.height));
+      c.width = nw; c.height = nh;
+      fr = Math.min(ideal(k.frameRate) || 30, maxFps(lens, nw, nh));
     };
     const patch = (t) => {
       t.getSettings = settings;

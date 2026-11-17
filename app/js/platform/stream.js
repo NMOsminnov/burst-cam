@@ -1,7 +1,13 @@
 // Открытие камеры в максимальном разрешении, при котором поток держит частоту для серии.
 import { RESOLUTION_LADDER, MIN_STREAM_FPS } from '../core/config.js';
 
-const CACHE_KEY = 'burstcam.mode.v1';
+const CACHE_KEY = 'burstcam.mode.v2'; // v2: режимы с частотой 60 к/с (кэш v1 не годится)
+
+/** Целевая частота: по умолчанию максимальная, в идеале 60 к/с. */
+export function fpsTarget(caps) {
+  const max = caps?.frameRate?.max;
+  return Math.min(60, max && max >= 1 ? Math.round(max) : 60);
+}
 
 function cacheGet(key) {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')[key] || null; } catch { return null; }
@@ -43,7 +49,7 @@ export async function openStream({ facing, deviceId, mode = null, status = () =>
   const first = cached ? { width: { ideal: cached[0] }, height: { ideal: cached[1] } } : { width: { ideal: 1920 }, height: { ideal: 1080 } };
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...base, ...first, frameRate: { ideal: 30 } } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...base, ...first, frameRate: { ideal: (mode && mode[2]) || 60 } } });
   } catch (e) {
     if (e.name === 'OverconstrainedError') {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: base });
@@ -55,7 +61,7 @@ export async function openStream({ facing, deviceId, mode = null, status = () =>
     let s = track.getSettings();
     if (mode && px(s) < 0.9 * cached[0] * cached[1]) {
       // В портрете часть браузеров ждёт ширину и высоту наоборот.
-      try { await track.applyConstraints({ width: { ideal: cached[1] }, height: { ideal: cached[0] }, frameRate: { ideal: 30 } }); } catch { /* как есть */ }
+      try { await track.applyConstraints({ width: { ideal: cached[1] }, height: { ideal: cached[0] }, frameRate: { ideal: cached[2] || fpsTarget(caps) } }); } catch { /* как есть */ }
       s = track.getSettings();
     }
     if (mode || px(s) >= 0.9 * cached[0] * cached[1]) return { stream, track, caps, settings: s, fromCache: true };
@@ -68,7 +74,7 @@ export async function openStream({ facing, deviceId, mode = null, status = () =>
     if (L * S <= px(best)) break; // дальше только хуже текущего
     for (const [w, h] of [[L, S], [S, L]]) {
       try {
-        await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } });
+        await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: fpsTarget(caps) } });
       } catch { continue; }
       const s = track.getSettings();
       const key = `${s.width}x${s.height}`;
@@ -83,7 +89,7 @@ export async function openStream({ facing, deviceId, mode = null, status = () =>
   // Вернуть лучшее из увиденного (последний applyConstraints мог дать худшее).
   const now = track.getSettings();
   if (now.width !== best.width || now.height !== best.height) {
-    try { await track.applyConstraints({ width: { ideal: best.width }, height: { ideal: best.height }, frameRate: { ideal: 30 } }); } catch { /* оставим как есть */ }
+    try { await track.applyConstraints({ width: { ideal: best.width }, height: { ideal: best.height }, frameRate: { ideal: fpsTarget(caps) } }); } catch { /* оставим как есть */ }
   }
   const settings = track.getSettings();
   const long = Math.max(settings.width, settings.height);
@@ -101,7 +107,7 @@ export async function stepDown(track, caps, facing, deviceId) {
   const portrait = s.height > s.width;
   const [w, h] = portrait ? [next[1], next[0]] : next;
   try {
-    await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } });
+    await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: fpsTarget(caps) } });
   } catch { return false; }
   const n = track.getSettings();
   cacheSet(`${facing}:${deviceId || ''}:${screen.width}x${screen.height}`, [Math.max(n.width, n.height), Math.min(n.width, n.height)]);
@@ -152,13 +158,16 @@ export async function probeModes(track, caps, { cacheKey, photo = null } = {}) {
     seen.set(k, m);
   };
   await note();
+  const rates = [...new Set([fpsTarget(caps), 30])];
   for (const [L, S] of feasibleLadder(caps)) {
     for (const [w, h] of [[L, S], [S, L]]) {
-      try { await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } }); } catch { continue; }
-      await note();
+      for (const fr of rates) {
+        try { await track.applyConstraints({ width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: fr } }); } catch { continue; }
+        await note();
+      }
     }
   }
-  try { await track.applyConstraints({ width: { ideal: before.width }, height: { ideal: before.height }, frameRate: { ideal: 30 } }); } catch { /* как есть */ }
+  try { await track.applyConstraints({ width: { ideal: before.width }, height: { ideal: before.height }, frameRate: { ideal: before.frameRate || fpsTarget(caps) } }); } catch { /* как есть */ }
   const modes = [...seen.values()].sort((a, b) => b.width * b.height - a.width * a.height);
   if (ck) cacheSet(ck, modes);
   return modes;

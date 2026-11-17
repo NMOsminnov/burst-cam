@@ -305,7 +305,7 @@ export class CameraUI {
       bar.hidden = !lensBtns.length;
       return;
     }
-    const presets = [zoom.min < 1 ? zoom.min : null, 1, 2, 5].filter((z) => z != null && z >= zoom.min && z <= zoom.max);
+    const presets = [zoom.min < 1 ? zoom.min : null, 1, 2, 4].filter((z) => z != null && z >= zoom.min && z <= zoom.max);
     const uniq = [...new Set(presets.map((z) => Math.round(z * 10) / 10))];
     if (uniq.length < 2 && !lensBtns.length) { bar.hidden = true; return; }
     bar.replaceChildren(...lensBtns, ...uniq.map((z) => {
