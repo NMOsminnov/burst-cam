@@ -54,6 +54,8 @@ async function caps() {
     c['хранилище не вычищается'] = await navigator.storage.persisted?.();
   } catch { /* нет */ }
   for (const [k, v] of Object.entries(c)) row('caps', k, typeof v === 'boolean' ? yes(v) : v);
+  // Версия приложения — чтобы видеть, не открыта ли на телефоне старая копия из кэша.
+  try { report.version = ((await (await fetch('sw.js', { cache: 'no-store' })).text()).match(/VERSION = '([^']+)'/) || [])[1]; } catch { /* без сети */ }
   report.ua = navigator.userAgent;
   report.screen = `${screen.width}x${screen.height}@${devicePixelRatio}`;
   report.caps = c;
