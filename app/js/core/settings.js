@@ -20,6 +20,7 @@ export const DEFAULTS = {
   tapMode: 'auto',
   stillSize: 'max', // 'max' | 'half'
   quality: 'high',
+  antiblur: true, // ограничивать выдержку (1/30 с, при зуме от 2× — 1/60 с), яркость — за счёт ISO
 };
 
 export function loadSettings() {

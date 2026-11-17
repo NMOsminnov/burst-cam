@@ -7,6 +7,7 @@ import { WorkerSource, MainSource } from './sources.js';
 import { newSeriesId } from './scheduler.js';
 import { MIN_STREAM_FPS, STILL_GAIN } from './config.js';
 import { jpegQuality, lensKey, saveSettings } from './settings.js';
+import { ExposureGuard, antiblurSupported } from './antiblur.js';
 
 export class Camera {
   constructor({ video, platform, pool, settings, onEvent = () => {}, status = () => {} }) {
@@ -65,6 +66,7 @@ export class Camera {
       lens: lens ? { name: lens.name, short: lens.short, kind: lens.kind } : null,
       lenses: this.lenses.lenses.map((l) => ({ deviceId: l.deviceId, name: l.name, short: l.short, kind: l.kind, facing: l.facing })),
       streamMode: this.prefs.streamMode[this.key] || null,
+      antiblur: { on: this.prefs.antiblur !== false, supported: antiblurSupported(this.caps), ...(this.guard ? this.guard.info() : {}) },
     };
   }
 
@@ -142,6 +144,25 @@ export class Camera {
     if (gen !== this.generation) return;
     await this._setupStill(gen);
     if (gen !== this.generation) return;
+    this._startGuard();
+    this.onEvent('ready', this.info());
+  }
+
+  _startGuard() {
+    this.guard?.stop();
+    this.guard = null;
+    if (this.prefs.antiblur === false || !this.track) return;
+    this.guard = new ExposureGuard({ track: this.track, video: this.video, caps: this.caps, onEvent: (e, d) => this.onEvent(e, d) });
+    this.guard.start();
+  }
+
+  /** Защита от смаза (ограничение выдержки) — вкл/выкл. */
+  async setAntiblur(on) {
+    this.prefs.antiblur = !!on;
+    this.onEvent('setting', { antiblur: !!on });
+    saveSettings(this.prefs);
+    if (on) this._startGuard();
+    else { await this.guard?.stop(); this.guard = null; }
     this.onEvent('ready', this.info());
   }
 
@@ -371,6 +392,8 @@ export class Camera {
   }
 
   _teardown() {
+    this.guard?.stop();
+    this.guard = null;
     if (this.activeShot && this.source) this.source.stop(this.activeShot.shotId);
     this.activeShot = null;
     this.source?.close();

@@ -3,6 +3,8 @@
 //   ?fake=3840x2160       — стартовый режим
 //   &still=4000x3000      — поддельный ImageCapture.takePhoto() такого размера
 //   &stillRot=90          — снимок повёрнут на 90° (как отдают часть Android-телефонов)
+//   &dark=1               — полумрак: автоэкспозиция держит выдержку 40 мс (как в журнале телефона автора)
+//   &isoIgnored=1         — ручной ISO не действует на яркость
 // Объективы: «Back Camera», «Back Ultra Wide Camera», «Front Camera» (ярлыки как в Safari).
 // В рабочий кэш приложения (service worker) не попадает.
 
@@ -36,6 +38,8 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
   const fps60 = params.has('fps60');
   const maxFps = (lens, w, h) => (fps60 && lens === LENSES[0] && w * h <= 1920 * 1080 ? 60 : 30); // getPhotoCapabilities отказывает (так бывает на части телефонов)
   window.__fakeStats = { takePhoto: 0, rejected: 0 };
+  const dark = params.has('dark');
+  const isoIgnored = params.has('isoIgnored');
 
   const makeStream = (constraints) => {
     const v = constraints?.video || {};
@@ -45,6 +49,8 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
     let [w, h] = start && lens === LENSES[0] ? start : closest(lens.modes, ideal(v.width), ideal(v.height));
     let fr = Math.min(ideal(v.frameRate) || 30, maxFps(lens, w, h));
 
+    const ex = { mode: 'continuous', auto: dark ? 400 : 150, time: 0, iso: 100 };
+    window.__fakeExposure = ex;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d');
@@ -64,6 +70,12 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
       ctx.fillStyle = '#fff';
       ctx.font = `${Math.round(c.height / 12)}px sans-serif`;
       ctx.fillText(`FAKE ${lens.label} ${c.width}x${c.height} #${n}`, c.width * 0.05, c.height * 0.9);
+      // Ручная экспозиция: яркость ∝ выдержка × ISO относительно того, что выбрала автоматика.
+      if (ex.mode === 'manual') {
+        const gain = (ex.time * (isoIgnored ? 100 : ex.iso)) / (ex.auto * 100);
+        ctx.fillStyle = gain < 1 ? `rgba(0,0,0,${1 - gain})` : `rgba(255,255,255,${Math.min(1, (gain - 1) * 0.4)})`;
+        ctx.fillRect(0, 0, c.width, c.height);
+      }
       setTimeout(draw, 1000 / 30);
     };
     draw();
@@ -72,15 +84,22 @@ export function installFakeCamera(spec, params = new URLSearchParams(location.se
     const origStop = track.stop.bind(track);
     track.stop = () => { stopped = true; origStop(); };
     let zoom = 1;
-    const settings = () => ({ width: c.width, height: c.height, frameRate: fr, facingMode: lens.facing, deviceId: lens.deviceId, zoom });
+    const settings = () => ({ width: c.width, height: c.height, frameRate: fr, facingMode: lens.facing, deviceId: lens.deviceId, zoom,
+      exposureMode: ex.mode, exposureTime: ex.mode === 'manual' ? ex.time : ex.auto, iso: ex.mode === 'manual' ? ex.iso : 100 });
     const caps = () => ({
       width: { min: 1, max: lens.modes[0][0] }, height: { min: 1, max: lens.modes[0][1] },
       frameRate: { min: 1, max: fps60 && lens === LENSES[0] ? 60 : 30 }, facingMode: [lens.facing], deviceId: lens.deviceId,
       zoom: lens.facing === 'environment' ? { min: 1, max: 4, step: 0.1 } : undefined,
+      exposureMode: ['continuous', 'manual'], exposureTime: { min: 1, max: 300000, step: 1 }, iso: { min: 50, max: 6400, step: 1 },
     });
     const apply = async (k) => {
       const z = k?.advanced?.find((a) => a.zoom != null)?.zoom;
       if (z != null) zoom = z;
+      for (const a of k?.advanced || []) {
+        if (a.exposureMode) ex.mode = a.exposureMode;
+        if (a.exposureTime != null) ex.time = a.exposureTime;
+        if (a.iso != null) ex.iso = a.iso;
+      }
       if (!ideal(k?.width)) return;
       const [nw, nh] = closest(lens.modes, ideal(k.width), ideal(k.height));
       c.width = nw; c.height = nh;

@@ -72,6 +72,14 @@ export class SettingsSheet {
     }
     parts.push(`<section><h3>Режим камеры</h3><p class="note">Разрешение превью, серии удержанием${i.still ? '' : ' и фото по касанию'}.</p>${modesHtml}</section>`);
 
+    // Защита от смаза.
+    const ab = i.antiblur || {};
+    const abNote = !ab.supported ? 'Эта камера не даёт браузеру управлять выдержкой — защита недоступна.'
+      : ab.state === 'manual' ? `Сейчас работает: выдержка 1/${Math.round(1e4 / ab.exposureTime)} с, ISO ${Math.round(ab.iso)}.`
+      : ab.state === 'off' ? 'На этом телефоне не сработала (ISO не меняет яркость) — снимает автоматика камеры.'
+      : 'Сейчас светло — автоматика камеры и так снимает быстро.';
+    parts.push(`<section><h3>Защита от смаза</h3>${radio('antiblur', 'on', ab.on, 'Включена', 'Выдержка не длиннее 1/30 с (при зуме от 2× — 1/60 с), недостающий свет — за счёт ISO. В темноте фото чётче, но шумнее; частота кадров ровнее.')}${radio('antiblur', 'off', !ab.on, 'Выключена', 'Выдержку выбирает камера: в помещении до 1/25 с и дольше.')}<p class="note">${abNote}</p></section>`);
+
     // Качество.
     parts.push(`<section><h3>Качество JPEG</h3>${Object.entries(QUALITY)
       .map(([k, v]) => radio('quality', k, p.quality === k, v.label, v.hint)).join('')}${
@@ -96,6 +104,7 @@ export class SettingsSheet {
         } else if (group === 'mode') {
           await this._busy(() => this.cam.setStreamMode(value === 'auto' ? null : value.split('x').map(Number)));
         } else if (group === 'quality') this.cam.setQuality(value);
+        else if (group === 'antiblur') await this.cam.setAntiblur(value === 'on');
         this.render();
       }
     } catch (err) {
