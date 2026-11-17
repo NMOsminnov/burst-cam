@@ -1,0 +1,21 @@
+{
+  "name": "burst-cam",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PWA-камера с серийной съёмкой удержанием кнопки (iOS и Android)",
+  "type": "module",
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "start": "node server/serve.js",
+    "icons": "node tools/make-icons.js",
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "playwright test",
+    "check": "npm test && npm run test:e2e"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}

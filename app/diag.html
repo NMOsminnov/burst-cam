@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>BurstCam — диагностика</title>
+<style>
+  body { margin: 0; padding: calc(env(safe-area-inset-top) + 14px) 16px 40px; background: #000; color: #f2f2f3; font: 15px/1.45 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 22px 0 6px; color: #ffd23f; }
+  p { color: #9a9aa2; margin: 4px 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 5px 0; border-bottom: 0.5px solid #2a2a2e; vertical-align: top; }
+  td:first-child { color: #9a9aa2; width: 52%; padding-right: 8px; }
+  .y { color: #5ee67a; } .n { color: #ff6b62; }
+  button { font: inherit; font-weight: 600; background: #ffd23f; color: #111; border: 0; border-radius: 12px; padding: 12px 18px; margin: 6px 6px 0 0; }
+  button:disabled { opacity: .4; }
+  pre { white-space: pre-wrap; word-break: break-all; background: #111; padding: 10px; border-radius: 10px; font-size: 12px; }
+  video { width: 100%; max-height: 30vh; background: #111; border-radius: 10px; margin-top: 8px; }
+  a { color: #ffd23f; }
+</style>
+</head>
+<body>
+<h1>Диагностика</h1>
+<p>Что умеет этот браузер и с какой скоростью он обрабатывает кадры. Пришлите скрин или текст из блока внизу — по нему видно, какой путь выбран и где узкое место. <a href="./">← К камере</a></p>
+
+<h2>Возможности</h2>
+<table id="caps"></table>
+
+<h2>Камера</h2>
+<button id="run">Запустить замер (≈15 с)</button>
+<video id="v" playsinline muted></video>
+<table id="cam"></table>
+
+<h2>Текст для отправки</h2>
+<pre id="dump">—</pre>
+<button id="copy">Скопировать</button>
+
+<script type="module" src="js/diag.js"></script>
+</body>
+</html>

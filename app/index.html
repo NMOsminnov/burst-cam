@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BurstCam">
+<meta name="format-detection" content="telephone=no">
+<title>BurstCam</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<link rel="modulepreload" href="js/main.js">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 13.2a3 3 0 0 1 5.3-1.9M15 12.8a3 3 0 0 1-5.3 1.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M14.6 9.6v1.9h-1.9M9.4 16.4v-1.9h1.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-torch" viewBox="0 0 24 24"><path d="M13 2 5 13.5h6L10 22l8-11.5h-6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 3.5h4M6.5 7l1 13h9l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 12v8h14v-8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-stack" viewBox="0 0 24 24"><rect x="7" y="7" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 16V5a1 1 0 0 1 1-1h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<main id="app">
+  <!-- Камера -->
+  <section id="camera" class="view camera" aria-label="Камера">
+    <div class="preview-wrap" id="preview-wrap">
+      <video id="preview" playsinline muted autoplay disablepictureinpicture></video>
+      <div id="focus-ring" class="focus-ring" hidden></div>
+    </div>
+    <div id="flash" class="flash"></div>
+
+    <header class="cam-top">
+      <button id="torch" class="icon-btn" aria-label="Фонарик" aria-pressed="false" hidden><svg><use href="#i-torch"/></svg></button>
+      <div id="res-label" class="res-label" aria-live="polite"></div>
+      <span class="spacer"></span>
+    </header>
+
+    <div id="zoom-bar" class="zoom-bar" hidden></div>
+    <div id="burst-counter" class="burst-counter" hidden aria-live="polite">0</div>
+    <div id="hint" class="hint" hidden>Нажмите — фото · удерживайте — серия</div>
+
+    <footer class="cam-bottom">
+      <button id="to-gallery" class="thumb-btn" aria-label="Галерея">
+        <img id="last-thumb" alt="" hidden>
+        <span id="pending" class="pending" hidden></span>
+      </button>
+      <button id="shutter" class="shutter" aria-label="Снять фото. Удерживайте для серии"><span class="shutter-core"></span></button>
+      <button id="flip" class="icon-btn round" aria-label="Сменить камеру"><svg><use href="#i-flip"/></svg></button>
+    </footer>
+
+    <div id="cam-status" class="cam-status" aria-live="polite"></div>
+    <div id="cam-error" class="cam-error" hidden>
+      <p id="cam-error-text"></p>
+      <button id="cam-retry" class="pill-btn">Повторить</button>
+    </div>
+  </section>
+
+  <!-- Галерея и серия (один и тот же вид, разное содержимое) -->
+  <section id="gallery" class="view page" hidden aria-label="Галерея">
+    <header class="page-top">
+      <button class="icon-btn" data-act="back" aria-label="Назад"><svg><use href="#i-back"/></svg></button>
+      <div class="page-title"><b data-ref="title">Галерея</b><small data-ref="subtitle"></small></div>
+      <button class="text-btn" data-act="select">Выбрать</button>
+    </header>
+    <div class="grid" data-ref="grid" role="list"></div>
+    <div class="empty" data-ref="empty" hidden>
+      <p><b>Пока пусто</b></p>
+      <p>Нажмите на кнопку спуска — одно фото.<br>Удерживайте — серия.</p>
+    </div>
+    <footer class="select-bar" data-ref="selbar" hidden>
+      <button class="text-btn" data-act="all">Все</button>
+      <span data-ref="selcount">Выбрано: 0</span>
+      <button class="icon-btn" data-act="share" aria-label="Поделиться"><svg><use href="#i-share"/></svg></button>
+      <button class="icon-btn danger" data-act="delete" aria-label="Удалить"><svg><use href="#i-trash"/></svg></button>
+    </footer>
+  </section>
+
+  <!-- Просмотр -->
+  <section id="viewer" class="view viewer" hidden aria-label="Просмотр">
+    <div class="viewer-track" data-ref="track"></div>
+    <header class="viewer-top chrome">
+      <button class="icon-btn" data-act="back" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button>
+      <div class="viewer-pos" data-ref="pos"></div>
+      <button class="icon-btn" data-act="info" aria-label="Сведения"><svg><use href="#i-info"/></svg></button>
+    </header>
+    <div class="viewer-info chrome" data-ref="info" hidden></div>
+    <button class="series-chip chrome" data-act="open-series" data-ref="serieschip" hidden></button>
+    <footer class="viewer-bottom chrome">
+      <button class="icon-btn" data-act="share" aria-label="Сохранить или поделиться"><svg><use href="#i-share"/></svg></button>
+      <button class="icon-btn danger" data-act="delete" aria-label="Удалить"><svg><use href="#i-trash"/></svg></button>
+    </footer>
+  </section>
+
+  <!-- Подтверждение -->
+  <div id="confirm" class="modal" hidden>
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-text">
+      <p id="confirm-text"></p>
+      <button id="confirm-ok" class="sheet-btn danger">Удалить</button>
+      <button id="confirm-cancel" class="sheet-btn">Отмена</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</main>
+
+<noscript>Для камеры нужен JavaScript.</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

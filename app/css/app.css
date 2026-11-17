@@ -1,0 +1,276 @@
+/* BurstCam — мобильная камера. Тёмная тема, крупные цели касания, безопасные зоны выреза. */
+:root {
+  --bg: #000;
+  --fg: #f5f5f7;
+  --mut: rgba(245, 245, 247, 0.62);
+  --glass: rgba(20, 20, 22, 0.55);
+  --glass-strong: rgba(28, 28, 30, 0.92);
+  --line: rgba(255, 255, 255, 0.14);
+  --acc: #ffd23f;
+  --danger: #ff453a;
+  --sel: #0a84ff;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; overscroll-behavior: none; }
+body {
+  font: 16px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+#app { position: fixed; inset: 0; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+svg { width: 24px; height: 24px; display: block; }
+[hidden] { display: none !important; }
+
+/* Каждый экран — свой слой: внутренние z-index не вылезают поверх следующего экрана. */
+.view { position: absolute; inset: 0; isolation: isolate; }
+.camera { z-index: 0; }
+.page { z-index: 1; }
+#series { z-index: 2; }
+.viewer { z-index: 3; }
+
+/* ---------- Камера ---------- */
+.camera { background: #000; touch-action: none; }
+.preview-wrap { position: absolute; inset: 0; overflow: hidden; }
+#preview { width: 100%; height: 100%; object-fit: cover; background: #000; }
+#preview.mirror { transform: scaleX(-1); }
+
+.flash { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+.flash.go { animation: flash 0.16s ease-out; }
+@keyframes flash { 0% { opacity: 0.75; } 100% { opacity: 0; } }
+
+.focus-ring {
+  position: absolute; width: 74px; height: 74px; margin: -37px 0 0 -37px;
+  border: 1.5px solid var(--acc); border-radius: 6px; pointer-events: none;
+  animation: focus 0.9s var(--ease) forwards;
+}
+@keyframes focus { 0% { transform: scale(1.4); opacity: 0; } 20% { opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { opacity: 0.0; } }
+
+.cam-top {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: calc(var(--safe-t) + 8px) calc(var(--safe-r) + 12px) 8px calc(var(--safe-l) + 12px);
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.45), transparent);
+}
+.cam-top .spacer { width: 44px; }
+.res-label { flex: 1; text-align: center; font-size: 13px; color: var(--mut); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+
+.icon-btn { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 22px; }
+.icon-btn.round { background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.icon-btn[aria-pressed="true"] { color: #111; background: var(--acc); }
+.icon-btn.danger { color: var(--danger); }
+.icon-btn:active { opacity: 0.6; }
+
+.cam-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 18px calc(var(--safe-r) + 28px) calc(var(--safe-b) + 26px) calc(var(--safe-l) + 28px);
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
+}
+
+.shutter {
+  width: 80px; height: 80px; border-radius: 50%;
+  border: 4px solid #fff; display: grid; place-items: center;
+  touch-action: none;
+}
+.shutter-core { width: 64px; height: 64px; border-radius: 50%; background: #fff; transition: transform 0.12s var(--ease), background 0.12s; }
+.shutter.down .shutter-core { transform: scale(0.86); }
+.shutter.burst .shutter-core { transform: scale(0.74); background: var(--acc); }
+.shutter:disabled { opacity: 0.4; }
+
+.thumb-btn {
+  position: relative; width: 52px; height: 52px; border-radius: 12px;
+  background: var(--glass); border: 1.5px solid rgba(255,255,255,0.8);
+  overflow: hidden;
+}
+.thumb-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-btn.pop img { animation: pop 0.25s var(--ease); }
+@keyframes pop { 0% { transform: scale(0.6); } 100% { transform: scale(1); } }
+.pending {
+  position: absolute; right: 2px; bottom: 2px; min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 10px; background: rgba(0,0,0,0.7); color: var(--acc);
+  font-size: 12px; line-height: 20px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+
+.burst-counter {
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 128px); transform: translateX(-50%);
+  min-width: 56px; padding: 4px 14px; border-radius: 16px; text-align: center;
+  background: var(--acc); color: #111; font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums;
+}
+.hint {
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 132px); transform: translateX(-50%);
+  white-space: nowrap; font-size: 13px; color: var(--fg); padding: 6px 12px; border-radius: 14px;
+  background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: opacity 0.4s;
+}
+.hint.fade { opacity: 0; }
+
+.zoom-bar {
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 128px); transform: translateX(-50%);
+  display: flex; gap: 6px; padding: 4px; border-radius: 20px; background: var(--glass);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.zoom-bar button { min-width: 38px; height: 32px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.zoom-bar button.on { color: var(--acc); background: rgba(0,0,0,0.4); }
+.burst-counter:not([hidden]) ~ .zoom-bar, .camera.bursting .zoom-bar, .camera.bursting .hint { visibility: hidden; }
+
+.cam-status {
+  position: absolute; left: 0; right: 0; top: 45%; text-align: center; color: var(--mut); font-size: 15px; pointer-events: none;
+}
+.cam-error {
+  position: absolute; left: 16px; right: 16px; top: 30%; padding: 18px; border-radius: 18px;
+  background: var(--glass-strong); text-align: center;
+}
+.cam-error p { margin: 0 0 14px; line-height: 1.45; }
+.pill-btn { background: var(--fg); color: #000; font-weight: 600; padding: 10px 22px; border-radius: 22px; }
+
+/* Альбомная ориентация: элементы управления справа, как в системной камере. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .cam-bottom {
+    top: 0; left: auto; width: calc(var(--safe-r) + 120px);
+    flex-direction: column-reverse; justify-content: space-between;
+    padding: calc(var(--safe-t) + 22px) calc(var(--safe-r) + 20px) calc(var(--safe-b) + 22px) 20px;
+    background: linear-gradient(to left, rgba(0,0,0,0.55), transparent);
+  }
+  .burst-counter, .hint, .zoom-bar { bottom: auto; top: calc(var(--safe-t) + 54px); }
+}
+
+/* ---------- Страницы (галерея, серия) ---------- */
+.page { background: #000; display: flex; flex-direction: column; animation: slideUp 0.28s var(--ease); }
+@keyframes slideUp { from { transform: translateY(6%); opacity: 0; } to { transform: none; opacity: 1; } }
+.page-top {
+  display: flex; align-items: center; gap: 4px;
+  padding: calc(var(--safe-t) + 6px) calc(var(--safe-r) + 8px) 6px calc(var(--safe-l) + 4px);
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-bottom: 0.5px solid var(--line); position: relative; z-index: 2;
+}
+.page-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.page-title b { font-size: 17px; }
+.page-title small { font-size: 12px; color: var(--mut); font-variant-numeric: tabular-nums; }
+.text-btn { min-width: 64px; height: 44px; padding: 0 8px; color: var(--acc); font-size: 16px; font-weight: 500; }
+.text-btn:active { opacity: 0.6; }
+
+.grid {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 2px;
+  /* Высота строки = ширина колонки. Через aspect-ratio плиток строки в длинной прокручиваемой
+     сетке сжимались и плитки наезжали друг на друга. */
+  grid-auto-rows: calc((100vw - (var(--cols, 3) - 1) * 2px) / var(--cols, 3));
+  align-content: start; padding: 2px 0 calc(var(--safe-b) + 80px);
+  touch-action: pan-y;
+}
+@media (min-width: 560px) { .grid { --cols: 4; } }
+@media (min-width: 820px) { .grid { --cols: 6; } }
+.tile {
+  /* Без content-visibility: её «заглушка» другой высоты заставляла сетку прыгать при прокрутке.
+     Миниатюры и так грузятся лениво (IntersectionObserver). */
+  position: relative; background: #1c1c1e; overflow: hidden;
+  contain: layout paint;
+}
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.2s; }
+.tile img.ok { opacity: 1; }
+.tile .badge {
+  position: absolute; right: 5px; bottom: 5px; display: flex; align-items: center; gap: 3px;
+  padding: 2px 6px 2px 4px; border-radius: 10px; background: rgba(0,0,0,0.6);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tile .badge svg { width: 14px; height: 14px; }
+.tile .mark {
+  position: absolute; right: 6px; top: 6px; width: 24px; height: 24px; border-radius: 12px;
+  border: 1.5px solid #fff; background: rgba(0,0,0,0.25); display: none; place-items: center;
+}
+.tile .mark svg { width: 16px; height: 16px; opacity: 0; }
+.selecting .tile .mark { display: grid; }
+.tile.sel .mark { background: var(--sel); border-color: var(--sel); }
+.tile.sel .mark svg { opacity: 1; }
+.tile.sel img { transform: scale(0.92); transition: transform 0.15s var(--ease); }
+.tile:active img { filter: brightness(0.8); }
+
+.empty { position: absolute; top: 40%; left: 0; right: 0; text-align: center; color: var(--mut); padding: 0 24px; }
+.empty b { color: var(--fg); font-size: 18px; }
+
+.select-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px calc(var(--safe-r) + 10px) calc(var(--safe-b) + 6px) calc(var(--safe-l) + 6px);
+  background: rgba(20,20,22,0.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 0.5px solid var(--line);
+}
+.select-bar span { flex: 1; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
+.select-bar .text-btn { min-width: 52px; }
+
+/* ---------- Просмотр ---------- */
+.viewer { background: #000; overflow: hidden; touch-action: none; }
+.viewer.light { background: #000; }
+.viewer-track { position: absolute; inset: 0; will-change: transform; }
+.slide { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
+.slide .zoomer { will-change: transform; }
+.slide img {
+  width: 100%; height: 100%; object-fit: contain; display: block;
+  pointer-events: none; -webkit-user-drag: none;
+}
+.chrome { transition: opacity 0.2s; }
+.viewer.bare .chrome { opacity: 0; pointer-events: none; }
+.viewer-top {
+  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 6px;
+  padding: calc(var(--safe-t) + 6px) calc(var(--safe-r) + 8px) 8px calc(var(--safe-l) + 8px);
+  background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+}
+.viewer-pos { flex: 1; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
+.viewer-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: space-around;
+  padding: 10px calc(var(--safe-r) + 24px) calc(var(--safe-b) + 12px) calc(var(--safe-l) + 24px);
+  background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+}
+.viewer-info {
+  position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 60px);
+  padding: 12px 14px; border-radius: 14px; background: var(--glass-strong); font-size: 14px; line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+.viewer-info dt { color: var(--mut); float: left; width: 42%; }
+.viewer-info dd { margin: 0 0 0 42%; }
+.series-chip {
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 76px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 18px;
+  background: var(--glass-strong); font-size: 14px; font-weight: 600; white-space: nowrap;
+}
+.series-chip svg { width: 18px; height: 18px; }
+
+/* ---------- Модальное подтверждение ---------- */
+.modal {
+  position: absolute; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,0.45); animation: fadeIn 0.18s;
+  padding: 0 calc(var(--safe-r) + 10px) calc(var(--safe-b) + 10px) calc(var(--safe-l) + 10px);
+}
+@keyframes fadeIn { from { opacity: 0; } }
+.modal-card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px; animation: slideUp 0.22s var(--ease); }
+.modal-card p {
+  margin: 0; padding: 16px; text-align: center; font-size: 14px; color: var(--mut);
+  background: var(--glass-strong); border-radius: 14px 14px 0 0; margin-bottom: -8px; border-bottom: 0.5px solid var(--line);
+}
+.sheet-btn { height: 56px; border-radius: 14px; background: var(--glass-strong); font-size: 18px; }
+#confirm-ok { border-radius: 0 0 14px 14px; }
+.sheet-btn.danger { color: var(--danger); }
+.sheet-btn:not(.danger) { font-weight: 600; }
+.sheet-btn:active { background: #3a3a3c; }
+
+.toast {
+  position: absolute; left: 50%; top: calc(var(--safe-t) + 60px); transform: translateX(-50%); z-index: 30;
+  max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 14px;
+  background: var(--glass-strong); font-size: 14px; text-align: center; animation: fadeIn 0.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
